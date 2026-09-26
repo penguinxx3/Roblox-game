@@ -1,14 +1,14 @@
 --!strict
--- DebugControls: P1.1 test controls only (not gameplay input).
+-- DebugControls: test controls only (gameplay input is InputRouter).
 --
---   Keyboard: R reset · 1-4 scenario · V next pose · T cycle slow-mo · G moon gravity
---             P pause · N single step (while paused) · C contact markers · F2 overlay
+--   Keyboard: R reset · 1-5 scenario · V pose override (debug: hold a named pose instead
+--             of the player's input; cycles through the poses and back to off)
+--             T cycle slow-mo · G moon gravity · P pause · N single step (while paused)
+--             C contact markers · F2 overlay
 --   Touch:    a compact button row (top-right) with the same actions.
 --   Tuning:   every Tuning parameter is mirrored as an attribute on the client-side
 --             folder ReplicatedStorage.GymTuning. Edit them live in Studio's
 --             Properties panel during Play (client view). `reset` params apply on reset.
---
--- Gameplay input (Arch/Tuck/Let Go/Grab/Twist, touch-down buttons) is P1.3.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -40,10 +40,11 @@ local function nextTimeScale(current: number): number
 	return 1
 end
 
-local function nextPose(current: string): string
+-- off -> Neutral -> Tuck -> ... -> Limp -> off
+local function nextPose(current: string?): string?
 	local order = Rig.POSE_ORDER
-	local i = table.find(order, current) or 0
-	return order[i % #order + 1]
+	local i = if current then table.find(order, current) or 0 else 0
+	return if i >= #order then nil else order[i + 1]
 end
 
 function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { note: string }
@@ -64,7 +65,11 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		Reset = actions.reset,
 		Scene = cycleScenario,
 		Pose = function()
-			Sim.setPose(sim, nextPose(sim.rig.pose))
+			if sim.control == "player" then
+				sim.poseOverride = nextPose(sim.poseOverride)
+			else
+				Sim.setPose(sim, nextPose(sim.rig.pose) or Rig.POSE_ORDER[1])
+			end
 		end,
 		Slow = function()
 			Sim.setParam(sim, "timeScale", nextTimeScale(sim.tuning.timeScale))
@@ -90,7 +95,7 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		C = actions.toggleContacts,
 		F2 = handlers.Info,
 	}
-	for i, keyName in { "One", "Two", "Three", "Four" } do
+	for i, keyName in { "One", "Two", "Three", "Four", "Five" } do
 		local s = Scenarios.list[i]
 		if s then
 			keyMap[keyName] = function()

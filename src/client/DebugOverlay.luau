@@ -81,11 +81,15 @@ function DebugOverlay.update(self: DebugOverlay, sim: any, stats: Stats)
 	local a = Rig.jointAnglesDeg(sim.rig)
 	local g = Tuning.effectiveGravity(t)
 	local gripErr = if sim.grip then string.format("%.4f", sim.grip.error) else "-"
+	local c = sim.controller
+	local poseInfo = if c
+		then (if sim.poseOverride then `pose override={sim.poseOverride}` else "player input")
+		else `pose={sim.rig.pose}`
 	local lines = {
 		string.format(
-			"BAR GYM  P1.1 physics foundation   scene=%s  pose=%s%s",
+			"BAR GYM  P1.2 movement   scene=%s  %s%s",
 			sim.scenario,
-			sim.rig.pose,
+			poseInfo,
 			if sim.paused then "  [PAUSED]" else ""
 		),
 		string.format(
@@ -133,6 +137,30 @@ function DebugOverlay.update(self: DebugOverlay, sim: any, stats: Stats)
 			a.knee,
 			a.ankle
 		),
+		if c
+			then string.format(
+				"move  mode=%s  facing %+d  twist %5.1f° (%d half)  spin %5.2f rev/s  crouch %.2f  swing %5.2f rad/s  last=%s",
+				c.mode,
+				sim.rig.facing,
+				math.deg(c.psi),
+				c.halfTwists,
+				m.angularMomentum / math.max(Rig.massState(sim.rig).inertia, 1e-6) / (2 * math.pi),
+				c.crouchDepth,
+				c.swingRate,
+				c.lastEvent
+			)
+			else "move  (pose control)",
+		if c
+			then string.format(
+				"input  arch %.2f  tuck %.2f  twist %s%s  presses: letGo %d  grab %d",
+				sim.input.arch,
+				sim.input.tuck,
+				if sim.input.twistLeft then "L" else "-",
+				if sim.input.twistRight then "R" else "-",
+				sim.input.letGoPresses,
+				sim.input.grabPresses
+			)
+			else "input  -",
 		string.format(
 			"events  invalid %d  outOfBounds %d   dropped %.3fs",
 			stats.invalidEvents,
@@ -145,7 +173,7 @@ function DebugOverlay.update(self: DebugOverlay, sim: any, stats: Stats)
 	end
 	table.insert(
 		lines,
-		"keys: R reset  1-4 scene  V pose  T slow-mo  G moon  P pause  N step  C contacts  F2 hide"
+		"play: A Arch  S Tuck (ground: crouch, release = jump)  W Let Go  Q/E Twist   debug: R reset  1-5 scene  V pose  T slow  G moon  P pause  N step  C contacts  F2 hide"
 	)
 	self.label.Text = table.concat(lines, "\n")
 end

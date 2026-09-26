@@ -44,9 +44,16 @@ end)
 roblox.implementProperty("Instance", "AttributeChanged", function(inst)
 	return signalFor(inst, "AttributeChanged")
 end)
-roblox.implementProperty("UserInputService", "InputBegan", function(inst)
-	return signalFor(inst, "InputBegan")
-end)
+for _, name in { "InputBegan", "InputEnded", "InputChanged" } do
+	roblox.implementProperty("UserInputService", name, function(inst)
+		return signalFor(inst, name)
+	end)
+end
+for _, name in { "InputBegan", "InputEnded" } do
+	roblox.implementProperty("GuiObject", name, function(inst)
+		return signalFor(inst, name)
+	end)
+end
 
 -- Engine shims ---------------------------------------------------------------------------
 roblox.implementMethod("Instance", "WaitForChild", function(inst, name, timeout)
@@ -84,6 +91,17 @@ end)
 roblox.implementMethod("RunService", "IsStudio", function()
 	return true
 end)
+
+-- pretend to be a touch device so the touch layout is built and can be driven
+local uisInstance = game:GetService("UserInputService")
+local okTouch = pcall(function()
+	uisInstance.TouchEnabled = true
+end)
+if not okTouch then
+	roblox.implementProperty("UserInputService", "TouchEnabled", function()
+		return true
+	end)
+end
 
 local players = game:GetService("Players")
 local player = Instance.new("Player")
@@ -197,9 +215,26 @@ local function press(buttonName)
 	button.Activated:Fire()
 end
 
+local UIS = game:GetService("UserInputService")
 local function key(code)
-	game:GetService("UserInputService").InputBegan
-		:Fire({ KeyCode = code, UserInputType = roblox.Enum.UserInputType.Keyboard }, false)
+	UIS.InputBegan:Fire({ KeyCode = code, UserInputType = roblox.Enum.UserInputType.Keyboard }, false)
+end
+local function keyUp(code)
+	UIS.InputEnded:Fire({ KeyCode = code, UserInputType = roblox.Enum.UserInputType.Keyboard }, false)
+end
+local function pad(event, code, z)
+	UIS[event]:Fire({
+		KeyCode = code,
+		UserInputType = roblox.Enum.UserInputType.Gamepad1,
+		Position = roblox.Vector3.new(0, 0, z or 1),
+	}, false)
+end
+local function touchButton(name)
+	local gui = playerGui:FindFirstChild("GymTouch")
+	return gui and gui:FindFirstChild(name)
+end
+local function overlayField(pattern)
+	return freshOverlay():match(pattern)
 end
 
 -- Run -------------------------------------------------------------------------------------
@@ -222,12 +257,13 @@ check(bulkMoves >= 240, "BulkMoveTo called every frame")
 local camPos = camera.CFrame.Position
 check(camPos.Z > 10 and camPos.Y == camPos.Y, `camera placed on the +Z side (pos {camPos})`)
 
-for i, name in { "Hang", "Drop", "Tumble", "Wheel" } do
+for i, name in { "Hang", "Drop", "Tumble", "Wheel", "Stand" } do
 	key(({
 		roblox.Enum.KeyCode.One,
 		roblox.Enum.KeyCode.Two,
 		roblox.Enum.KeyCode.Three,
 		roblox.Enum.KeyCode.Four,
+		roblox.Enum.KeyCode.Five,
 	})[i])
 	ok, err = frames(300)
 	check(ok, `key {i} -> {name}, 300 frames ` .. (if ok then "" else tostring(err)))
@@ -249,7 +285,7 @@ frames(30)
 expectOverlay("button Scene", "scene=Drop", true)
 press("Pose")
 frames(30)
-expectOverlay("button Pose (Crouch -> Limp)", "pose=Limp", true)
+expectOverlay("button Pose (off -> Neutral)", "pose override=Neutral", true)
 press("Slow")
 frames(30)
 expectOverlay("button Slow", "timeScale 0.50", true)
@@ -285,7 +321,12 @@ frames(30)
 expectOverlay("button Reset", "step=", true)
 key(roblox.Enum.KeyCode.V)
 frames(10)
-expectOverlay("key V", "pose=", true)
+expectOverlay("key V (Neutral -> Tuck)", "pose override=Tuck", true)
+for _ = 1, 5 do
+	key(roblox.Enum.KeyCode.V)
+end
+frames(10)
+expectOverlay("key V cycles back to player input", "player input", true)
 key(roblox.Enum.KeyCode.G)
 frames(10)
 expectOverlay("key G (moon off)", "(moon)", false)
@@ -339,6 +380,115 @@ if tuning then
 		"reset-only param (simHz=120) applied after Reset"
 	)
 end
+
+-- Gameplay input (P1.2): keyboard, gamepad and touch through InputRouter --------------------
+local Enum = roblox.Enum
+key(Enum.KeyCode.One) -- Hang
+frames(30)
+key(Enum.KeyCode.A)
+frames(20)
+expectOverlay("key A holds Arch", "arch 1.00", true)
+keyUp(Enum.KeyCode.A)
+frames(5)
+expectOverlay("releasing A", "arch 0.00", true)
+key(Enum.KeyCode.W)
+frames(20)
+expectOverlay("key W lets go of the bar", "mode=air", true)
+expectOverlay("Let Go counted once", "letGo 1", true)
+
+key(Enum.KeyCode.Five) -- Stand
+frames(120)
+expectOverlay("Stand scene is grounded", "mode=ground", true)
+key(Enum.KeyCode.S)
+frames(36)
+check((tonumber(overlayField("crouch (%d%.%d+)")) or 0) > 0.5, "holding S crouches")
+keyUp(Enum.KeyCode.S)
+local sawAir, sawLanding = false, false
+for _ = 1, 60 do
+	frames(1)
+	local text = freshOverlay()
+	sawAir = sawAir or text:find("mode=air", 1, true) ~= nil
+	sawLanding = sawLanding or (sawAir and text:find("mode=ground", 1, true) ~= nil)
+	if sawLanding then
+		break
+	end
+end
+check(sawAir, "releasing S from a crouch jumps (airborne)")
+check(sawLanding, "the jump lands back on the feet")
+
+key(Enum.KeyCode.Three) -- Tumble: in the air, twist
+frames(10)
+key(Enum.KeyCode.E)
+local prevPositions, worstJump, snapped = nil, 0, false
+for _ = 1, 30 do
+	frames(1)
+	local positions = {}
+	for _, p in workspace.GymView.Gymnast:GetChildren() do
+		positions[p] = p.CFrame.Position
+	end
+	if prevPositions then
+		for p, pos in positions do
+			local before = prevPositions[p]
+			if before then
+				-- paired limbs may swap sides at the half-twist snap; compare against the nearest
+				local best = (pos - before).Magnitude
+				for q, other in prevPositions do
+					if q.Name == p.Name then
+						best = math.min(best, (pos - other).Magnitude)
+					end
+				end
+				worstJump = math.max(worstJump, best)
+			end
+		end
+	end
+	prevPositions = positions
+end
+keyUp(Enum.KeyCode.E)
+frames(5)
+snapped = (tonumber(overlayField("%((%d+) half%)")) or 0) > 0
+check(snapped, "holding E twists through a half twist")
+check(worstJump < 2.5, `twisting body moves continuously on screen (largest per-frame part move {worstJump})`)
+local twistDeg = tonumber(overlayField("twist%s+(%-?%d+%.%d)°"))
+check(twistDeg ~= nil and math.abs(twistDeg) > 1, `twist angle shown and held after release ({twistDeg})`)
+
+-- gamepad: analog trigger and a shoulder button
+key(Enum.KeyCode.One)
+frames(10)
+pad("InputChanged", Enum.KeyCode.ButtonR2, 0.5)
+frames(5)
+expectOverlay("gamepad RT half-pressed = Tuck 0.50", "tuck 0.50", true)
+pad("InputChanged", Enum.KeyCode.ButtonR2, 0)
+pad("InputBegan", Enum.KeyCode.ButtonB)
+frames(10)
+expectOverlay("gamepad B lets go", "mode=air", true)
+
+-- touch: buttons exist, react on touch-down, several at once
+local names = { "Arch", "Tuck", "TwistLeft", "TwistRight", "LetGo", "Grab" }
+local allThere = true
+for _, n in names do
+	allThere = allThere and touchButton(n) ~= nil
+end
+check(allThere, "touch layout has Arch, Tuck, Twist ◄/►, Let Go and Grab")
+key(Enum.KeyCode.One)
+frames(10)
+local touchA = { UserInputType = Enum.UserInputType.Touch, KeyCode = Enum.KeyCode.Unknown }
+local touchB = { UserInputType = Enum.UserInputType.Touch, KeyCode = Enum.KeyCode.Unknown }
+touchButton("Tuck").InputBegan:Fire(touchA)
+touchButton("Arch").InputBegan:Fire(touchB)
+frames(5)
+local text = freshOverlay()
+check(
+	text:find("tuck 1.00", 1, true) ~= nil and text:find("arch 1.00", 1, true) ~= nil,
+	"two thumbs: Tuck + Arch held (pike)"
+)
+touchButton("Tuck").InputEnded:Fire(touchA)
+touchButton("Arch").InputEnded:Fire(touchB)
+frames(5)
+expectOverlay("touch released", "tuck 0.00", true)
+touchButton("LetGo").InputBegan:Fire(touchA)
+frames(10)
+expectOverlay("touch-down on LET GO releases the bar", "mode=air", true)
+touchButton("LetGo").InputEnded:Fire(touchA)
 
 -- Long run for stability of the presentation loop
 local t0 = os.clock()

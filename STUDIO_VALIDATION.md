@@ -1,8 +1,8 @@
-# Studio Validation — P1.1 Physics Foundation
+# Studio Validation — P1.2 Movement Control
 
 What must be checked **inside Roblox Studio**. This couldn't be done from the cloud build environment, which has no connection to Studio.
 
-Everything headless is already green (TESTING.md, "P1.1 status"). This list covers what only the real engine and human eyes can confirm.
+P1.1 (physics foundation) was validated in Studio by the owner. Everything headless for P1.2 is green (TESTING.md, "P1.2 status"). This list covers what only the real engine, real input devices and human eyes can confirm.
 
 Tick items and note anything odd, ideally with a short screen recording.
 
@@ -18,75 +18,99 @@ Press **Play** (F5). In the **Output** window you should see:
 
 | Expect | Meaning |
 |---|---|
-| `[GymSelfTest] ... 37 passed, 0 failed, 3 skipped` | The physics specs pass **inside the Roblox engine** (quick mode) |
-| `[GymClient] P1.1 physics foundation running. ...` | The client viewer started |
+| `[GymSelfTest] ... 54 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
+| `[GymClient] P1.2 movement running. Play: A/← Arch, ...` | The client started in player control |
 | `[GymClient] runtime check OK: scene=Hang steps=... avgSim=...ms ...` | The simulation is stepping and rendering after 3 s |
 | No red errors, no `warn` lines from `[GymClient]` | |
 
-Also check `ReplicatedStorage.GymTests` in Explorer (server view): its attributes should read `SelfTestStatus = "passed"`, `SelfTestFailed = 0`.
+Also check `ReplicatedStorage.GymTests` in Explorer (server view): `SelfTestStatus = "passed"`, `SelfTestFailed = 0`.
 
-**Full suite** (includes slow tests, ~5–20 s). Run it from the **command bar**, either in Edit mode or on the server during Play:
+**Full suite** (includes the slow soaks, ~30–60 s). From the **command bar**, in Edit mode or on the server during Play:
 
 ```lua
-print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (40 passed)
+print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (58 passed)
 ```
 
-## 2. What you should see (per scene)
+## 2. Controls
 
-Switch scenes with keys **1–4** or the **Scene** button.
+**Gameplay (P1.2)** — the same actions on every device:
 
-| Scene | Expected | Watch for (report if seen) |
-|---|---|---|
-| **1 Hang** | Hangs from the steel bar, released 60° to the side, swings back and forth and slowly loses height. Arms nearly straight; hips, knees and feet flex a little with the swing. | Joints visibly separating; jitter; a swing that *gains* height; limbs flailing wildly |
-| **2 Drop** | Falls from about 4 studs beside a block, lands, folds up, comes to rest on the floor. | Sinking into the floor; bouncing; shaking while at rest; limbs bending past natural angles |
-| **3 Tumble** | Thrown up with a backward spin in a tuck, flies about 4–5 studs high, lands messily near the blocks or ramp, settles. | Passing through blocks or the ramp; exploding limbs; never coming to rest |
-| **4 Wheel** | Hangs from one handle of a slowly rotating steel star (amber hub). It's carried around the circle and swings under it. | Hands detaching from the handle; stutter as the wheel turns |
+| Action | Keyboard | Gamepad | Touch (minimal layout) |
+|---|---|---|---|
+| Arch (hold) | A or ← | LT (analog) | ARCH (left) |
+| Tuck (hold) — on the ground: crouch, release to jump | S or ↓ | RT (analog) | TUCK (left) |
+| Arch + Tuck = Pike | both | both | both thumbs |
+| Let Go | W or ↑ | B | LET GO |
+| Grab *(counted, no effect until P1.3)* | Space or J | A | GRAB |
+| Twist left / right (hold; both = hold the angle) | Q / E | LB / RB | ◄ / ► |
+| Reset | R | Y | Reset button (top right) |
 
-## 3. Controls (debug-only, P1.1)
+**Debug:** 1–5 scene · V pose override (holds a named pose instead of your input: Neutral → Tuck → Pike → Arch → Crouch → Limp → back to your input) · T slow-mo 1 / 0.5 / 0.25 / 0.1 · G moon gravity · P pause · N single step · C contact markers · F2 overlay. The same actions are buttons at the top right.
 
-| Key | Button | Check |
-|---|---|---|
-| R | Reset | Restarts the current scene exactly as at the start |
-| 1–4 | Scene | Switches scenes (the view rebuilds) |
-| V | Pose | Cycles Neutral → Tuck → Pike → Arch → Crouch → Limp. The body springs into each shape (Limp = ragdoll). |
-| T | Slow | 1 → 0.5 → 0.25 → 0.1 time scale. **Motion must stay smooth (no stutter) at 0.1.** |
-| G | Moon | Moon gravity on/off: floatier falls and swings |
-| P | Pause | Freezes |
-| N | Step | While paused, advances exactly one 1/240 s step |
-| C | — | Red dots at the contact points (e.g. feet and body on the floor in Drop) |
-| F2 | Info | Hides/shows the overlay |
+The overlay's `move` line shows the mode (grip / air / ground / fallen), facing, twist angle and half twists, spin rate, crouch depth, swing rate and the last event; the `input` line shows what the simulation receives.
+
+## 3. What to check (per scene)
+
+| Scene | Do this | Expected | Report if seen |
+|---|---|---|---|
+| **1 Hang** | Watch 5 s with no input | Swings from 60°, slowly loses height (as in P1.1; the shoulders are a little firmer on the bar) | Jitter; a swing that gains height without input |
+| | Hold **A** (Arch), then **S** (Tuck), then both (Pike) | The body opens (hips and shoulders back), folds into a tuck, and pikes (straight legs), each smoothly within ~0.2 s | Snapping, visible wobble after the shape settles, joints separating |
+| | **Pump:** Tuck as the body swings up, Arch as it swings down, for 10–15 s | The swing grows well past horizontal. The opposite timing kills the swing | No growth with correct timing; growth with wrong timing |
+| | Press **W** at different points of the swing | Lets go instantly; the body flies along the swing with the same rotation (no pop, no slowdown) | Any jolt, speed change or delay at release |
+| | After letting go, hold **S** | Spins visibly faster while tucked, slower again when released | |
+| | After letting go, hold **E** (or **Q**) | The body turns about its long axis, chest toward then away from the camera, **with no jump or flicker when passing side-on** (the half-twist snap) | Any flicker, jump or limb swap you can see |
+| **2 Drop** | Watch | Falls ~4 studs, **lands on its feet, bends to absorb and stands up** | Falling over; sinking into the floor; a bounce back into the air |
+| **3 Tumble** | Watch, then Reset and hold **S** | Thrown up spinning; tucking spins faster; lands (on the feet if roughly upright, otherwise physically on the floor) | Passing through blocks or the ramp; exploding limbs |
+| **4 Wheel** | Watch, then press **W** | Carried around by the wheel; Let Go flings the body off along the handle's motion | Hands detaching on their own; stutter |
+| **5 Stand** | Watch 10 s | Stands still, balanced over the feet | Drifting, trembling, falling |
+| | Tap **S** quickly | A small dip, no jump | |
+| | Hold **S** ~0.5 s, release | Crouches (controlled, feet stay down), then **jumps ~1.5 studs**, lands on the feet and stands up again | Feet leaving the floor while crouching; big forward drift; falling after landing |
+| | Hold **A** | Rises into a reach (arms up) and keeps balance | |
+| | Jump, then **E** in the air | Twists in the air, lands square | |
+
+**Slow motion (T)** — repeat a jump and a release at 0.25 and 0.1: motion stays smooth, and **every press still works**, even a quick tap (presses are counted, never dropped).
+
+**Moon (G)** — jumps and swings are the same height as on Earth but ~2.5× slower and floatier (strength follows gravity by default). For real-moon jumps (~6× higher) set `strengthGravityScaling = 0` in `GymTuning` (§4) and compare.
+
+**Touch** — Studio's **Device Emulator** (Test tab → Device, pick a phone): the six touch buttons appear (ARCH / TUCK left, ◄ ► LET GO GRAB right). Check that they react on **touch-down**, that ARCH + TUCK can be held together, and that you can hold TUCK while pressing LET GO. The layout is a functional placeholder, not the final mobile UI.
+
+**Gamepad** (if you have one): RT half-pressed gives a half tuck (overlay `tuck 0.50`); B lets go; LB/RB twist; Y resets.
 
 ## 4. Live tuning
 
 1. During Play, switch Explorer to the **client** view.
 2. Select `ReplicatedStorage.GymTuning`.
-3. Edit attributes in Properties. Changes apply immediately, except the ones marked "applies on Reset" in the overlay (`simHz` and body sizes). Try:
-   - `motorHertz` (3 = softer and slower poses, 12 = snappier)
-   - `hipMaxTorque` (0.3 = legs sag under load)
-   - `gravity`
-   - `restitution` (0.5 = bouncy landings)
-   - `substeps` (1 = cheaper but stretchier joints)
+3. Edit attributes in Properties. Changes apply immediately, except the ones marked "applies on Reset" in the overlay. Worth trying for P1.2 feel:
+   - `motorHertz` 6 → 8 (firmer shapes; tuck spin reaches the reference's ≈1.6×)
+   - `motorDampingRatio` 1.25 → 0.8 (P1.1's livelier, wobblier feel) or 1.5 (calmer)
+   - `shapeFreqClose` / `shapeFreqOpen` 30 (no input smoothing, like P1.1) vs 8 / 6
+   - `swingAssist` 0 → 0.5 (pumping reaches a giant swing in a few swings)
+   - `twistRate` (1.5 rev/s), `twistMode` 1 (tap to spin)
+   - `jumpStrength` (1.5), `balanceAssist` 0 (pure muscle balance: stands still, but a shove topples it)
+   - `strengthGravityScaling` 0 with moon on
 4. Out-of-range values snap back to the allowed range.
 
 ## 5. Performance (needs a real device for the real answer)
 
 - **In Studio:** the overlay line `sim X ms (N steps) render Y ms` shows the per-frame cost. MicroProfiler (Ctrl+F6) has labels `GymSim` and `GymRender`.
-- **On a phone (the real target):** publish privately, open on your lowest-end phone, and read the same overlay line. The budget is sim ≤ 1.0 ms/frame and fps ≥ 30 on low-end (headless Lune measured ~0.1 ms/frame on a desktop CPU). Please send the numbers for each device.
+- **On a phone (the real target):** publish privately, open on your lowest-end phone, and read the same overlay line. The budget is sim ≤ 1.0 ms/frame and fps ≥ 30 on low-end (headless Lune: ~0.1 ms of physics per 60 fps frame; the controller adds a little). Please send the numbers for each device, and note whether touch buttons respond instantly.
 
-## 6. Human look and feel (P1.1 questions)
+## 6. Human look and feel (P1.2 questions)
 
-This is only the foundation; gameplay controls come in P1.2. Still worth telling me:
-1. Does the body look **springy and alive**, too **wobbly**, or too **stiff**? The pose change in **V** is the clearest place to judge.
-2. Is the Hang swing believable (speed, arc, slow decay)?
-3. Do landings in Drop and Tumble look physical rather than canned?
-4. Anything that looks wrong at joints, contacts, or in slow motion?
+1. **Smoothness:** is it smoother than P1.1 without feeling mushy or slow? (P1.2 raised motor damping and smooths input; see TESTING.md for the numbers.) Compare `motorDampingRatio` 0.8 vs 1.25 if unsure.
+2. **Responsiveness:** does Arch/Tuck feel instant? Does Let Go feel exactly when you pressed?
+3. **Pumping:** can you build the swing by timing? Should it be easier (assist or firmer motors), or is the challenge right?
+4. **Twist:** does it look like a real twist? Is 1.5 rev/s the right speed? Hold or tap mode?
+5. **Ground:** do standing, the crouch-and-jump, and landings look physical and controllable? Is the jump height right?
+6. **Moon:** "same jump, slow and floaty" (default) or "real moon, huge jumps" (`strengthGravityScaling = 0`)?
+7. Anything that looks wrong at joints, contacts, or in slow motion.
 
 ## 7. For a Claude session with Studio MCP on your computer
 
-Studio MCP only works from a session running on the same computer as Studio (the Claude Desktop app, or `claude remote-control` in the project folder).
+Studio MCP only works from a session running on the same computer as Studio (the Claude Desktop app, or `claude remote-control` in the project folder), where the MCP server was added with `claude mcp add ...`.
 
 1. Sync or open the place (step 0).
 2. Run in Edit mode: `print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)` and confirm `0`.
 3. Start a playtest. Read Output for the lines in step 1, and confirm `ReplicatedStorage.GymTests:GetAttribute("SelfTestStatus") == "passed"`.
 4. Report the `[GymClient] runtime check` line (fps, sim ms, render ms).
-5. Stop the playtest. Leave the visual checks (steps 2–6) to a human.
+5. Stop the playtest. Leave the visual and feel checks (steps 3–6) to a human.

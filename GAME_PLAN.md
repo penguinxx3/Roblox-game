@@ -1,6 +1,6 @@
 # Game Plan (v2)
 
-Status: **Phase 0 — architecture and design. Awaiting approval before any implementation.**
+Status: **approved; Phase 1 in progress. P1.1 (physics foundation) done; P1.2 (movement control) built and tested headlessly, Studio validation pending.**
 v2 incorporates the reference-clip study ([REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md)).
 
 ## 1. Vision
@@ -45,7 +45,9 @@ A **regrab** is a successful intentional catch after a release, without touching
 
 Grab and Let Go are never both valid at the same moment, so pressing the wrong one of the two does nothing.
 
-*Phase 2 (ground):* no extra buttons are planned. Crouching is Tuck; releasing Tuck from a crouch extends the legs and **jumps physically**, as seen in reference R5. Landing on feet or hands is contact physics.
+*Ground (built early, in P1.2):* no extra buttons. **Tuck = crouch; releasing Tuck from a crouch pushes off and jumps physically** (a quick tap only dips). **Arch = reach** (arms up, rise); holding Arch through the push aims for backward spin (a back-flip takeoff; still weak, a tuning item). Pike on the ground crouches like Tuck. Landing on the feet is contact physics plus a landing reflex; landing on hands is Phase 2.
+
+*As built in P1.2:* the keyboard and gamepad tables below are implemented (Grab is counted but has no effect until P1.3; Reset is on R / Y; the alternate debug keys \` and gamepad View/Select are not bound yet). Touch uses a **minimal functional Layout A** (touch-down, multi-touch, also clickable with a mouse), not the final mobile UI; Layout B, button sizing/opacity settings and the clean-recording mode come later.
 
 ### Mobile (primary; landscape)
 
@@ -159,7 +161,7 @@ Grab and Let Go are never both valid at the same moment, so pressing the wrong o
 **Out:**
 - shops, lobby, progression, monetization, cosmetics, quests, game modes, maps
 - avatars, multiplayer
-- ground movement (standing, jumping, landing logic, handstands)
+- advanced ground movement (handstands, hand-plants, vaults); basic standing, jumping and landing were pulled into P1.2 at the owner's request
 - in-plane beams, wheels, the player replay tool, scoring, any UI beyond the controls and debug tools
 
 ## 9. Design concerns and proposed alternatives

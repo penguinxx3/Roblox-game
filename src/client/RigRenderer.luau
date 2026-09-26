@@ -3,6 +3,8 @@
 --
 -- Presentation only: it reads body poses (interpolated between fixed steps) and
 -- never writes to the simulation. All parts move in one BulkMoveTo call per frame.
+-- Twist (P1.2) turns the whole drawn body about its long axis through the centre of mass
+-- (Pose3D), so the planar body can face toward or away from the camera mid-air.
 --
 -- Look: our own style (not the reference's): rounded white limbs, a teal torso,
 -- far-side limbs slightly darker for depth.
@@ -11,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Gym = ReplicatedStorage:WaitForChild("Gym")
 local Sim = require(Gym:WaitForChild("Sim"))
+local Pose3D = require(Gym:WaitForChild("Pose3D"))
 local Plane = require(script.Parent:WaitForChild("Plane"))
 
 local RigRenderer = {}
@@ -36,6 +39,7 @@ export type RigRenderer = typeof(setmetatable(
 		parts: { Part },
 		cframes: { CFrame },
 		headLocalX: number,
+		sim: any,
 	},
 	RigRenderer
 ))
@@ -65,6 +69,7 @@ function RigRenderer.new(sim: any, parent: Instance): RigRenderer
 		parts = {},
 		cframes = {},
 		headLocalX = sim.rig.headLocalX,
+		sim = sim,
 	}, RigRenderer)
 
 	local function addCapsule(seg: any, depth: number, color: Color3)
@@ -129,6 +134,18 @@ function RigRenderer.draw(self: RigRenderer, alpha: number)
 		else -- head
 			local hx = self.headLocalX
 			cframes[i] = CFrame.new(x + c * hx, y + s * hx, item.depth)
+		end
+	end
+	-- twist: turn everything about the long axis through the centre of mass
+	local sim = self.sim
+	local psi = Sim.renderTwist(sim, alpha)
+	if psi ~= 0 then
+		local f = Pose3D.frame(sim.rig, psi, alpha, Sim.bodyPose)
+		local pivot = CFrame.new(f.cu, f.cv, 0)
+		local axis = Vector3.new(math.cos(f.axisAngle), math.sin(f.axisAngle), 0)
+		local twist = pivot * CFrame.fromAxisAngle(axis, psi) * pivot:Inverse()
+		for i, cf in cframes do
+			cframes[i] = twist * cf
 		end
 	end
 	workspace:BulkMoveTo(self.parts, cframes, Enum.BulkMoveMode.FireCFrameChanged)

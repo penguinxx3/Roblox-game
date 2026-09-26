@@ -1,9 +1,9 @@
 --!strict
--- GymClient: P1.1 physics-foundation viewer.
+-- GymClient: P1.2 movement prototype.
 --
 -- The client owns and steps its own simulation (the planar core in ReplicatedStorage.Gym)
 -- and draws it. Order inside one render step keeps input-to-screen latency at one frame:
---   advance the fixed-step simulation -> draw the body and world -> move the camera.
+--   sample input -> advance the fixed-step simulation -> draw the body and world -> camera.
 -- There is no Roblox character in this prototype.
 
 local Players = game:GetService("Players")
@@ -33,8 +33,10 @@ local WorldRenderer = require(script:WaitForChild("WorldRenderer"))
 local CameraController = require(script:WaitForChild("CameraController"))
 local DebugOverlay = require(script:WaitForChild("DebugOverlay"))
 local DebugControls = require(script:WaitForChild("DebugControls"))
+local InputRouter = require(script:WaitForChild("InputRouter"))
 
-local sim = Sim.new(nil, "Hang")
+-- "player" control: Arch/Tuck/Let Go/Twist drive the body through the movement controller
+local sim = Sim.new(nil, "Hang", { control = "player" })
 
 local view = workspace:FindFirstChild("GymView") or Instance.new("Folder")
 view.Name = "GymView"
@@ -57,11 +59,15 @@ local function rebuildViews()
 	camera:snap(Vector3.new(x, y, 0))
 end
 
+local function resetScene()
+	Sim.reset(sim)
+	rebuildViews()
+end
+
+local input = InputRouter.new(playerGui, { onReset = resetScene })
+
 local controls = DebugControls.bind(sim, {
-	reset = function()
-		Sim.reset(sim)
-		rebuildViews()
-	end,
+	reset = resetScene,
 	scenario = function(name: string)
 		Sim.reset(sim, name)
 		rebuildViews()
@@ -87,6 +93,7 @@ local smokeChecked = false
 RunService:BindToRenderStep("GymSim", Enum.RenderPriority.Input.Value + 1, function(dt: number)
 	local t0 = os.clock()
 	debug.profilebegin("GymSim")
+	Sim.setInput(sim, input:sample())
 	local steps = Sim.advance(sim, dt)
 	debug.profileend()
 	local t1 = os.clock()
@@ -151,5 +158,5 @@ RunService:BindToRenderStep("GymSim", Enum.RenderPriority.Input.Value + 1, funct
 end)
 
 print(
-	"[GymClient] P1.1 physics foundation running. Keys: R reset, 1-4 scene, V pose, T slow-mo, G moon, P pause, N step, C contacts, F2 overlay."
+	"[GymClient] P1.2 movement running. Play: A/← Arch, S/↓ Tuck (on the ground: crouch, release to jump), W/↑ Let Go, Q/E Twist. Debug: R reset, 1-5 scene, V pose override, T slow-mo, G moon, P pause, N step, C contacts, F2 overlay."
 )

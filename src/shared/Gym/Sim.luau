@@ -8,14 +8,21 @@
 --   run floor(acc / h) steps (capped at maxStepsPerFrame; excess time is dropped)
 --   alpha = acc / h   (render interpolation between the previous and current step)
 --
--- Nothing in here touches Roblox. Presentation reads body poses and `alpha`;
--- input (later) arrives as data; networking (later) serializes this state.
+-- Nothing in here touches Roblox. Presentation reads body poses and `alpha`; player
+-- input arrives as data (Input.Frame via Sim.setInput); networking (later) can send the
+-- same input frames to a server running the same simulation.
+--
+-- Control modes:
+--   "pose"   (default) the motors hold the named pose `rig.pose` (P1.1 scenes, tests)
+--   "player" the movement Controller turns input frames into muscle commands (P1.2)
 
 -- (Headless tests load a mirrored copy with these requires rewritten to file paths; see tools/lune_mirror.luau.)
 local Solver2D = require(script.Parent.Solver2D)
 local Tuning = require(script.Parent.Tuning)
 local Rig = require(script.Parent.Rig)
 local Scenarios = require(script.Parent.Scenarios)
+local Input = require(script.Parent.Input)
+local Controller = require(script.Parent.Controller)
 
 local Sim = {}
 
@@ -40,6 +47,14 @@ export type Sim = {
 	droppedTime: number,
 	events: { Event },
 	onStep: ((sim: Sim) -> ())?,
+	control: string, -- "pose" or "player"
+	input: Input.Frame, -- latest player input (read every fixed step)
+	controller: Controller.State?, -- present in "player" control
+	poseOverride: string?, -- debug: hold this pose instead of the controller's targets
+}
+
+export type Options = {
+	control: string?, -- "pose" (default) or "player"
 }
 
 local function syncParams(sim: Sim)
@@ -81,9 +96,12 @@ local function build(sim: Sim)
 	sim.lastFrameSteps = 0
 	sim.droppedTime = 0
 	syncParams(sim)
+	sim.controller = if sim.control == "player" then Controller.new(sim) else nil
 end
 
-function Sim.new(overrides: Tuning.Values?, scenario: string?): Sim
+function Sim.new(overrides: Tuning.Values?, scenario: string?, options: Options?): Sim
+	local control = (options and options.control) or "pose"
+	assert(control == "pose" or control == "player", `unknown control mode '{control}'`)
 	local sim: Sim = {
 		tuning = Tuning.new(overrides),
 		scenario = scenario or "Hang",
@@ -100,6 +118,10 @@ function Sim.new(overrides: Tuning.Values?, scenario: string?): Sim
 		droppedTime = 0,
 		events = {},
 		onStep = nil,
+		control = control,
+		input = Input.new(),
+		controller = nil,
+		poseOverride = nil,
 	}
 	build(sim)
 	return sim
@@ -128,7 +150,12 @@ function Sim.stepOnce(sim: Sim)
 		return
 	end
 	syncParams(sim)
-	Rig.applyMotors(sim.rig, sim.tuning)
+	local controller = sim.controller
+	if controller then
+		Controller.step(sim, controller, sim.input, sim.h)
+	else
+		Rig.applyMotors(sim.rig, sim.tuning)
+	end
 	Solver2D.step(sim.world, sim.h)
 	sim.stepCount += 1
 	sim.time += sim.h
@@ -194,6 +221,18 @@ end
 
 function Sim.setPose(sim: Sim, pose: string)
 	Rig.setPose(sim.rig, pose)
+end
+
+-- Latest player input (copied; read at every following fixed step). Presses are counters,
+-- so a press is acted on at the next step even if this frame runs no steps.
+function Sim.setInput(sim: Sim, frame: Input.Frame)
+	Input.sanitize(Input.copy(frame, sim.input))
+end
+
+-- Interpolated twist angle about the long axis (radians) for rendering; 0 in "pose" control.
+function Sim.renderTwist(sim: Sim, alpha: number): number
+	local c = sim.controller
+	return if c then Controller.renderPsi(c, alpha) else 0
 end
 
 -- Sets a tuning value. Values marked `reset` take effect on the next reset.

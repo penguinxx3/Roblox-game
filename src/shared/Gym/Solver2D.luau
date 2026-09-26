@@ -48,6 +48,10 @@ export type Body = {
 	prevX: number,
 	prevY: number,
 	prevA: number,
+	-- external force/torque applied over the next step (set by controllers, cleared after each step)
+	forceX: number,
+	forceY: number,
+	torque: number,
 }
 
 export type Shape = {
@@ -95,10 +99,12 @@ export type Joint = {
 	maxTorque: number,
 	springHertz: number,
 	springDampingRatio: number,
+	frictionTorque: number, -- resists relative rotation (e.g. grip friction); 0 = off
 	-- accumulated impulses (warm started)
 	impulseX: number,
 	impulseY: number,
 	springImpulse: number,
+	frictionImpulse: number,
 	lowerImpulse: number,
 	upperImpulse: number,
 	-- per-step cache
@@ -209,6 +215,9 @@ local function newBody(index: number, name: string, kind: number): Body
 		prevX = 0,
 		prevY = 0,
 		prevA = 0,
+		forceX = 0,
+		forceY = 0,
+		torque = 0,
 	}
 end
 
@@ -353,6 +362,7 @@ export type JointDef = {
 	maxTorque: number?,
 	springHertz: number?,
 	springDampingRatio: number?,
+	frictionTorque: number?,
 }
 
 -- Revolute (pin) joint at a world point. Body A may be static or kinematic (a grip on
@@ -385,9 +395,11 @@ function Solver2D.addRevolute(
 		maxTorque = d.maxTorque or 0,
 		springHertz = d.springHertz or 0,
 		springDampingRatio = d.springDampingRatio or 1,
+		frictionTorque = d.frictionTorque or 0,
 		impulseX = 0,
 		impulseY = 0,
 		springImpulse = 0,
+		frictionImpulse = 0,
 		lowerImpulse = 0,
 		upperImpulse = 0,
 		axialMass = 0,
@@ -713,6 +725,8 @@ local function prepareJoints(world: World, h: number, maxHertz: number)
 		if not j.enableLimit then
 			j.lowerImpulse, j.upperImpulse = 0, 0
 		end
+		local maxFriction = j.frictionTorque * h
+		j.frictionImpulse = min(max(j.frictionImpulse, -maxFriction), maxFriction)
 	end
 end
 
@@ -723,7 +737,7 @@ local function warmStartJoints(world: World)
 		local ray = A.s * j.lax + A.c * j.lay
 		local rbx = B.c * j.lbx - B.s * j.lby
 		local rby = B.s * j.lbx + B.c * j.lby
-		local axial = j.springImpulse + j.lowerImpulse - j.upperImpulse
+		local axial = j.springImpulse + j.frictionImpulse + j.lowerImpulse - j.upperImpulse
 		local Px, Py = j.impulseX, j.impulseY
 		A.vx -= A.invMass * Px
 		A.vy -= A.invMass * Py
@@ -747,6 +761,17 @@ local function solveJoints(
 		local A, B = j.bodyA, j.bodyB
 		local mA, iA, mB, iB = A.invMass, A.invI, B.invMass, B.invI
 		local rel = B.a - A.a
+
+		-- joint friction (torque limited): resists relative rotation, e.g. grip friction on a bar
+		if j.frictionTorque > 0 then
+			local impulse = -j.axialMass * (B.w - A.w)
+			local maxImpulse = j.frictionTorque * h
+			local newImpulse = min(max(j.frictionImpulse + impulse, -maxImpulse), maxImpulse)
+			impulse = newImpulse - j.frictionImpulse
+			j.frictionImpulse = newImpulse
+			A.w -= iA * impulse
+			B.w += iB * impulse
+		end
 
 		-- spring motor (torque limited): a physical spring-damper toward the target angle
 		if j.enableSpring and j.maxTorque > 0 then
@@ -851,9 +876,9 @@ local function integrateVelocities(world: World, h: number)
 		if b.kind ~= Solver2D.DYNAMIC then
 			continue
 		end
-		local vx = (b.vx + h * gx) * linDamp
-		local vy = (b.vy + h * gy) * linDamp
-		local w = b.w * angDamp
+		local vx = (b.vx + h * (gx + b.forceX * b.invMass)) * linDamp
+		local vy = (b.vy + h * (gy + b.forceY * b.invMass)) * linDamp
+		local w = (b.w + h * b.torque * b.invI) * angDamp
 		local v2 = vx * vx + vy * vy
 		if v2 > maxV * maxV then
 			local k = maxV / sqrt(v2)
@@ -934,6 +959,11 @@ function Solver2D.step(world: World, dt: number)
 		j.error = sqrt(ex * ex + ey * ey)
 	end
 
+	-- external forces/torques are per step: controllers set them again before the next step
+	for _, b in world.bodies do
+		b.forceX, b.forceY, b.torque = 0, 0, 0
+	end
+
 	world.stepIndex += 1
 	world.time += dt
 end
@@ -941,6 +971,17 @@ end
 ----------------------------------------------------------------------------------------------------
 -- Queries and diagnostics
 ----------------------------------------------------------------------------------------------------
+
+-- Adds an external torque (applied over the next step, then cleared).
+function Solver2D.applyTorque(b: Body, torque: number)
+	b.torque += torque
+end
+
+-- Adds an external force at the body's centre of mass (applied over the next step, then cleared).
+function Solver2D.applyForce(b: Body, fx: number, fy: number)
+	b.forceX += fx
+	b.forceY += fy
+end
 
 -- World position of a point given in a body's local frame.
 function Solver2D.worldPoint(b: Body, lx: number, ly: number): (number, number)

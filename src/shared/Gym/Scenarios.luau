@@ -127,6 +127,24 @@ local list: { Scenario } = {
 	},
 }
 
+table.insert(list, {
+	name = "Stand",
+	description = "Standing on the floor (P1.2 ground movement: balance, crouch, jump, landing).",
+	pose = "GroundStand",
+	build = function(world, t)
+		local visuals = buildCourse(world, t)
+		local rig = Rig.build(world, t, {
+			pivot = "sole",
+			x = 0,
+			y = 0.002,
+			footFlat = true,
+			pose = "GroundStand",
+			buildPose = "GroundStand",
+		})
+		return { rig = rig, visuals = visuals }
+	end,
+})
+
 local byName: { [string]: Scenario } = {}
 for _, s in list do
 	byName[s.name] = s

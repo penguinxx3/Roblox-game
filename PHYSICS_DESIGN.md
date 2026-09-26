@@ -1,6 +1,6 @@
 # Physics Design — Gymnast Core (v2)
 
-Status: **approved; P1.1 (physics foundation) implemented.** Sections 1, 2, 4, 9, 10 and the P1.1 tuning tables in §12 describe the code as built (`src/shared/Gym/`). The other sections are specs for later milestones.
+Status: **approved; P1.1 (physics foundation) and P1.2 (movement control) implemented.** Sections 1–6, 8–11 and the tuning tables in §12 describe the code as built (`src/shared/Gym/`). §7 (intentional catch) is the P1.3 spec.
 
 **v2 changes** after studying the reference clips ([REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md)):
 - Motion is **planar (2.5D)**.
@@ -40,9 +40,13 @@ Left and right limbs are always paired, as in the reference, so each pair is one
 | Forearms (pair) | capsule r 0.15 | 1.0 (elbow → grip point) | 0.045 | Hand friction uses `handFriction` |
 | Thighs (pair) | capsule r 0.23 | 1.1 | 0.28 | |
 | Shanks (pair) | capsule r 0.18 | 1.1 | 0.09 | |
-| Feet (pair) | capsule r 0.12 | 0.7 (ankle → toe) | 0.02 | Standing and landing (Phase 2); dangling in the air |
+| Feet (pair) | capsule r 0.12 | 0.85: heel 0.15 behind the ankle, toe 0.7 ahead | 0.02 | Standing, balancing and landing |
 
 Grip to sole is about 6.3 studs. Inertias come from uniform rods with radius, plus the head as a disc offset by the parallel-axis rule.
+
+*P1.2 changes (body):*
+- **Heel.** The foot capsule reaches `FOOT_HEEL` = 0.15 behind the ankle, and the shank's rounded lower end stops `SHANK_TRIM` = 0.1 short of the ankle (collision and drawing). Before, the shank's end propped a flat foot's heel off the floor and there was nothing behind the ankle, so the feet physically could not push the body forward: standing was impossible without it.
+- **Limb inertia boost** (`limbInertiaBoost`, default 1; `Rig.INERTIA_SCALE`: upper arm ×2, forearm ×4, shank ×2, foot ×8; mass and length unchanged). Solver conditioning for the light segments that carry the whole body's load (a 0.2-mass foot on landing, a 0.45-mass forearm on the bar). Across 160 soak runs the worst joint-limit overshoot fell from 14.5° to under 3° at no cost; whole-body inertia changes by ~1%, so spin rates are unaffected (TESTING, P1.2).
 
 **Joints** are revolute (2D pins) with limits and a **spring motor** toward a target angle. All anatomical angles are 0 for a straight body with arms overhead; positive means flexion toward the front.
 
@@ -58,14 +62,17 @@ The solver works in relative body angles; each joint maps anatomical ↔ relativ
 
 **Motor model (as built):** a soft angular constraint `θ → θ*` with frequency `motorHertz`, damping `motorDampingRatio` and a **per-joint maximum torque**.
 - It's implicit (stable at any stiffness) and strength-limited, so loads (centrifugal pull, landings) bend joints: the "alive but controlled" behavior.
-- Torque unit is **Mg·stud**: total body mass × current gravity × 1 stud, so strength scales with moon gravity.
+- Torque unit is **Mg·stud**: total body mass × gravity × 1 stud. With `strengthGravityScaling` = 1 (default) the gravity is the current one, so strength follows moon gravity; 0 keeps Earth strength (§9).
 - A saturated motor exerts its maximum torque and no extra damping, so an overloaded limb swings around its equilibrium instead of settling. That's physically plausible; worth watching in feel tests.
+- *Learned in P1.2:* the spring's stiffness is relative to the two segments it joins, not to the load it carries. A joint that turns much more than its own segments (the shoulders on the bar turn the whole hanging body; the hips during a fast spin hold the legs against centrifugal pull) therefore gives a lot under load. That's why the bar has its own shoulder stiffness (§8) and why standing uses muscle torques (§6.4).
+- `Rig.drive` lets the controller override frequency, damping and strength per joint each step; the P1.1 named-pose path (`Rig.applyMotors`) is unchanged.
 
-## 3. Shape control (Arch / Tuck / Pike)
+## 3. Shape control (Arch / Tuck / Pike) — implemented in `Controller.luau`
 
 - Inputs: `tuck` and `arch` in [0, 1]. Keyboard and touch give 0 or 1; gamepad triggers are analog. Both held means **Pike**: `p = min(tuck, arch)`, `t = tuck − p`, `a = arch − p`.
-- `target = Neutral + t·(Tuck − Neutral) + a·(Arch − Neutral) + p·(Pike − Neutral)`
-- The motor frequency switches between `shapeFreqClose` when moving toward flexion (tucking) and `shapeFreqOpen` when opening (kick-out).
+- `target = Neutral + t·(Tuck − Neutral) + a·(Arch − Neutral) + p·(Pike − Neutral)` (on the bar and in the air).
+- **Input smoothing (P1.2):** the targets the motors see move through a critically damped second-order filter at `shapeFreqClose` (8 Hz) when closing (the target angle increases: tucking, piking) and `shapeFreqOpen` (6 Hz) when opening. It removes the step in target that made the motors slam to full torque; it adds ~0.01–0.02 s of response.
+- Motor damping is 1.25 (P1.1: 0.8). Measured with `tools/smooth_bench.luau` (zero gravity, hip and knee, vs exactly P1.1): overshoot 22.5° → 7.0°, lingering wobble 1.4° → 0.9°, joint jerk −46%, torso jerk while pumping −37%, response 0.17 → 0.19 s, tuck spin gain 1.47× → 1.52×. Pose settle time (Rig tests) 1.25–1.74 s → 0.75–1.12 s.
 
 | Pose | Shoulder | Elbow | Hip | Knee | Ankle |
 |---|---|---|---|---|---|
@@ -73,13 +80,12 @@ The solver works in relative body angles; each joint maps anatomical ↔ relativ
 | Arch | −25° | 0° | −30° | 0° | 100° |
 | Tuck | +25° | +20° | +125° | +135° | 90° |
 | Pike | +15° | +5° | +115° | 0° | 100° |
-| Crouch *(P1.1 debug/landing test)* | +90° | +10° | +70° | +90° | 70° |
-| Limp *(P1.1 debug)* | motors off | | | | |
+| GroundStand | +150° | +15° | +8° | +10° | 95° |
+| GroundCrouch (Tuck or Pike on the ground; balanced: centre of mass over the feet) | +70° | +15° | +107° | +100° | 118° |
+| GroundReach (Arch on the ground; jump push arms) | −10° | 0° | −8° | 0° | 62° |
+| Crouch / Limp *(P1.1 debug poses)* | +90° / off | +10° | +70° | +90° | 70° |
 
-P1.1 status:
-- The pose tables live in `Rig.POSES`; the debug controls switch poses to exercise the motors. There's no gameplay input yet.
-- Input-driven Arch/Tuck/Pike blending and the separate close/open frequencies are P1.2.
-- Measured in zero gravity from a straight start: every joint settles within 3° of its target in 1.6–2.7 s. The coupled springs wobble noticeably first (Pike: shoulder overshoots to ~59° before settling at 15°). Damping and frequency are tuning items for P1.2 feel work.
+Ankle > 90° = the shank leans forward over a flat foot. On the ground the ankle is not driven by the pose table: balance and a foot-flat spring drive it (§6.4).
 
 ## 4. Solver — implemented in `Solver2D.luau` + `Collide2D.luau`
 
@@ -126,20 +132,27 @@ A small **2D rigid-body solver** written for this game: soft-step sequential imp
 - XPBD: simpler, but friction, restitution and motor semantics are less direct.
 - The v1 reduced-coordinate model: exact, but can't handle multi-contact landings, handstands, vaults or reactive equipment without many special cases.
 
-**Not in P1.1:** world slice built from Roblox map parts. The P1.1 course is defined as data in `Scenarios.luau` and rendered from the solver's own shapes. The grip used by the test scenes is a plain pin joint; the intentional catch system is P1.4.
+**Not yet built:** world slice built from Roblox map parts. The course is defined as data in `Scenarios.luau` and rendered from the solver's own shapes. The grip used by the test scenes is a plain pin joint; the intentional catch system is P1.3.
 
-## 5. Derived states (game logic only; the solver doesn't care)
+**P1.2 additions:** per-step external force and torque on bodies (`Solver2D.applyForce` / `applyTorque`, cleared after each step) for muscle torques and assists; joint friction (`frictionTorque`, a torque-limited velocity constraint) for grip friction.
+
+## 5. Movement states — implemented in `Controller.luau`
+
+Derived every fixed step from the grip joint and the previous step's contacts; the solver doesn't know about them.
 
 ```
-GRIPPING  : grip joint active           → Let Go allowed; Grab ignored
-AIRBORNE  : no grip, no world contacts  → Grab attempts allowed
-CONTACT   : touching world, no grip     → prototype: if torso/head touches, or the body rests
-                                          on the floor for 0.3 s → FALLEN
-FALLEN    : prototype run over          → body stays physical (crumples); auto-reset after delay
+grip    : grip joint active                 → Arch/Tuck/Pike shape the swing, Let Go releases
+air     : no grip, no support               → Arch/Tuck/Pike shape the flight, Twist spins
+ground  : feet (or the heel end of the shank) touch with an upward normal, nothing else touches,
+          trunk within fallTiltAngle (75°) of upright
+                                            → stand / crouch / reach, balance, jump, landing
+fallen  : anything but the feet touches, or on the feet but tipped over
+                                            → shape control only; the body stays physical
 ```
 
-- Reset works from any state and puts the body hanging still from the bar in the Neutral pose.
-- Phase 2 adds STANDING, LANDED and HAND-PLANT logic on top of the same contacts (balance assist, jump from crouch) without changing the solver.
+- `ground → air` needs `groundGrace` (0.06 s) without foot contact, so bumps don't flicker. `fallen → air` when nothing touches.
+- Events (for the overlay, tests and later feedback): `release`, `halfTwist`, `push`, `takeoff`, `landing` (with impact speed), `fall`.
+- Reset works from any state. There is no auto-reset yet (the fall-and-reset loop comes with the catch, P1.3).
 
 ## 6. Release, flight, twist
 
@@ -152,29 +165,57 @@ Applied on the first step after the press. There's **no delay and no buffering**
    - rotation relative to the center of mass × `releaseSpinScale`
 
    Defaults are 1 / 0 / 1 (pure physics).
-3. Start `regrabLockout`.
+3. *(P1.3)* Start `regrabLockout`.
+
+As built (P1.2): exactly this. With the default shaping the release step changes linear momentum only by gravity and leaves angular momentum untouched (tested to 1e-9). A Let Go press while not gripping, and a Grab press (until P1.3), do nothing.
 
 ### 6.2 Flight
 - Just the solver with no grip and no contacts.
 - The spin rate follows body shape through conserved angular momentum. Target from the reference: tight tuck ≈ 1.6× the open or pike spin rate (TESTING R1).
 - Air drag defaults to 0.
 
-### 6.3 Twist (2.5D layer)
+### 6.3 Twist (2.5D layer) — as built
 
-Twist is a controlled rotation `ψ` about the body's long axis. In a planar model this does two things:
+Twist is a controlled rotation `ψ` about the body's long axis (the line through the centre of mass along the torso).
 
-- **Render:** the whole body is rotated by `ψ` about the torso's long axis, so the torso face and limbs turn toward and away from the camera, as in the reference.
-- **Dynamics (projected targets):** body-frame motor targets are projected into the plane: `θplane = atan2(sin θ · cos ψ, cos θ)`.
-  - A tuck seen from the side flattens as the body turns through 90° and mirrors after a half twist.
-  - A half twist therefore swaps front and back (a back flip becomes front-facing).
-  - The renderer rebuilds 3D limb poses from the body-frame angles plus `ψ`.
+- **Render:** the whole drawn body is rotated by `ψ` about that axis (`Pose3D.twist`, the same math in the renderer and the tests), so the chest and limbs turn toward and away from the camera.
+- **Dynamics: a mirror snap.** The planar body keeps its full shape in the plane. When `|ψ|` passes 90°, the body is mirrored in the plane across the long axis (`Rig.mirror`) and `ψ` jumps by 180°.
+  - The mirror conserves **exactly** the centre of mass, linear momentum, angular momentum and kinetic energy; joints stay attached; anatomical angles keep their meaning (the rig's `facing` flips).
+  - On screen it is continuous: a mirrored body turned by `ψ − 180°` lands every point where the unmirrored body turned by `ψ` would be, except that the left and right copies of paired limbs swap, which is invisible (tested on the rendered points: largest jump 1e-15 studs).
+  - A half twist therefore turns a back flip into a front-facing one, as in the reference.
+  - **Clearance:** mirroring moves limbs across the axis; close to the floor or a block that could put them inside it. The snap only happens when the mirrored body is at least 0.05 studs clear of the world (`Rig.mirrorClear`); otherwise the twist holds side-on at 90° until it is. (Found by the randomized input soak: a near-horizontal body just above the floor had its feet mirrored 0.58 studs into it.)
+- *Why not "projected targets" (the earlier spec):* at `ψ` = 90° the in-plane projection of every flexion is zero, so the 3D pose can't be recovered for drawing, and the motors would have to drive limbs through straight and back while spinning. The mirror is exact, cheap and needs no reconstruction.
 
 | `twistMode` | Behavior |
 |---|---|
-| `hold` (default) | While Twist L/R is held, `ψ̇` accelerates toward ±`twistRate` at `twistAccel`. Released, or both held, it stops at `twistStopAccel` and holds the angle. |
-| `momentum` | A tap starts the spin; a tap on the opposite side reverses it; holding both stops it and holds the angle. |
+| `0` hold (default) | While Twist L/R is held, `ψ̇` accelerates toward ±`twistRate` (1.5 rev/s) at `twistAccel`. Released, or both held, it stops at `twistStopAccel` and holds the angle. |
+| `1` momentum | A tap starts the spin; a tap on the opposite side reverses it; holding both stops it and holds the angle. |
 
-Twist is active only while AIRBORNE. On a catch, `ψ` snaps to the nearest 0°/180° (a visual blend), within `catchTwistTolerance` (§7.2).
+Twist is active only in the air. Landing or gripping settles an unfinished `ψ` back to square over `twistSettleTime` (0.12 s; visual only, the planar body is already square). The catch rule (P1.3) is unchanged: `ψ` must be within `catchTwistTolerance`.
+
+### 6.4 Ground: standing, crouch, jump, landing — as built
+
+Pulled forward from Phase 2 at the owner's request. All of it is muscle torques (equal and opposite on the two bodies of a joint) or pose springs, except `balanceAssist`.
+
+**Standing** (`ground`, not pushing):
+- Pose springs toward GroundStand / Crouch / Reach, smoothed at `groundShapeHertz` (2 Hz: a body can't crouch faster than it can fall; faster crouching lifted the feet off the floor), legs at `groundLegHertz` (8 Hz, ζ `groundLegDampingRatio` 1).
+- **Gravity compensation:** each leg joint carries the weight of everything above it (`gravityCompensation` = 1), so the springs only correct posture instead of sagging.
+- **Balance through the ankles:** a horizontal "virtual force" at the centre of mass steers it over the middle of the feet like a critically damped spring at `balanceHertz` (1.5 Hz); the ankle torque is capped by leg strength and, physically, by the foot's length (the ground can only push within the foot).
+- A soft ankle spring (`footFlatHertz`) keeps the foot flat, so a heel- or toe-first contact rolls onto the whole foot.
+- **`balanceAssist`** (1 Mg·stud of body weight, on by default, ground only, never in flight): a capped correction that turns the whole body about its feet back over them. It stands in for the small foot adjustments a person makes; a planar pair of feet can't step. Without it the body still stands indefinitely when undisturbed (tested), but even a 1 stud/s shove topples it; with it, shoves of ±4 studs/s recover.
+
+**Crouch and jump** (GAME_PLAN §4: crouching is Tuck; releasing Tuck from a crouch jumps):
+- Crouch depth is measured from the actual knee angle. Releasing Tuck at depth ≥ `jumpMinCrouch` (0.25) starts the **push**.
+- The push chooses the **ground reaction force**: the body's weight plus `jumpStrength` (1.5) body weights upward, applied right under the centre of mass. Each leg joint produces the torque that force needs about it, `τ_j = −((c − p_j) × F)`, capped at `jumpLegStrength` × strength. Where the force acts under the foot (the centre of pressure `c`) sets the moment about the centre of mass, the only thing that changes the body's spin: it steers the spin to zero at `jumpSpinHertz`, or toward `jumpArchSpin` (0.8 rev/s) backward while Arch is held (a back-flip takeoff), within what the foot can physically do.
+- The hips bring the trunk from the crouch's lean to upright (`jumpTorsoHertz`), internally.
+- The push stops when the knees pass `jumpLockKnee` (10°) or the feet leave the ground: an uncontrolled toe-off added spin and drift.
+- Measured: plain jumps rise 1.4–1.8 studs (≈ 0.45 m at this scale), take off with ≤ 0.1 rev/s spin and ≤ 1.3 studs/s drift, and land back on the feet.
+
+**Landing:**
+- **Landing reflex** (air, no shape input, trunk within `landingReflexTilt`, falling): the hips swing the legs so the middle of the feet lands under the centre of mass plus half the pendulum capture-point lead (two-link leg geometry with soft knees), and the ankles level the feet. Internal motion only. It fades out mid-flip.
+- **Yield, then recover:** at touchdown the knees and ankles give way (their targets follow the body, so their motors act as dampers at `landingHertz`/`landingDampingRatio`) until the fall has stopped or `landingAbsorbTime` passes; then the legs rise smoothly from wherever they are. The hips keep holding the trunk throughout. (A fixed "landing bend" target compressed less than the impact did, and the springs then threw the body back off the ground.)
+
+**Gravity scaling:** a body can't crouch faster than it can fall and balance works on a pendulum's time scale (√(length/g)), so all ground rates (crouch smoothing, balance, standing springs, push spin/trunk steering) scale by √(g/g₀) and all ground timers by its inverse. On the moon, standing plays out ~2.5× slower, like everything else gravity-driven.
 
 ## 7. Intentional catch system
 
@@ -268,28 +309,35 @@ At typical catch speeds (hands at 20–30 studs/s), a 0.45 stud radius is about 
 
 The reference never shows one-hand catches; hands always grip together. This stays **deferred, low priority**: only if playtests show a need.
 
-## 8. Swing shaping (hanging)
+## 8. Swing shaping (hanging) — as built
 
-- **Pumping is physical:** the motors do work as the shape changes (closing on the upswing, opening through the bottom). Timing adds or removes energy.
+- **Pumping is physical:** the motors do work as the shape changes. Measured from a 60° start over 15 s (peak angle in the last 4 s): no input 50° (decays), Tuck while rising / Arch while falling 121° (builds to near-giant swings), the opposite timing 18° (damps).
+- **Bar shoulders:** while gripping, the shoulder motor runs at `gripShoulderHertz` (18 Hz; P1.1 behaviour is 6). The shoulders turn the whole hanging body, and at 6 Hz Arch and Tuck barely moved them (Neutral / Arch / Tuck gave −3° / −4° / −10° against targets 8 / −25 / 25). At 18 Hz: 6° / −21° / 20°, and pumping works as above.
 - **Assists and limits:**
 
 | Knob | Effect |
 |---|---|
-| `gripFriction` | Torque opposing rotation at the grip (energy loss per swing) |
+| `gripFriction` | Friction torque at the grip (joint friction), in Mg·stud (0.02 default); energy lost per swing |
 | `angularDamping` | Air-like loss |
-| `swingAssist` | Optional extra torque about the grip, applied only when the player's shape change is **in phase** (the body's inertia about the grip is decreasing while swinging upward). It makes good timing pay off more without rewarding bad timing. Default 0. |
-| `maxSwingSpeed` | Soft cap on angular speed about the grip. The energy cap and the anti-infinite-loop guard. |
+| `swingAssist` | Optional extra torque about the grip, applied only when the shape change is **in phase** (the inertia about the grip is decreasing while the centre of mass rises) and only below the energy cap. Default 0. |
+| `maxSwingSpeed` | **Energy cap:** the swing may carry at most the energy of passing the bottom at this rotation rate (12 rad/s); any excess is braked away smoothly. It holds even against `swingAssist` = 2 (a 6 rad/s cap was held to 6.35 rad/s; 22.8 rad/s without the cap). |
+
+Torques about the grip are applied as a whole-body rotation (the same angular acceleration for every body), so they never bend the body.
 
 ## 9. Time step, time scale, gravity, interpolation
 
 - `dt = 1/simHz` (240). Each frame: `acc += min(realDt, 0.1)·timeScale`. Run `floor(acc/dt)` steps, capped at `maxStepsPerFrame` (excess is dropped). Render alpha = `acc/dt`.
 - **Slow motion = a smaller `timeScale`.** It applies to **the player's whole simulated world**, including kinematic equipment, whose motion is a deterministic function of the player's sim time. That matches the reference (the wheels slow down too).
-- **Moon gravity** = `gravity × moonGravityScale` (default 1/6). It combines with slow-mo.
+- **Moon gravity** = `gravity × moonGravityScale` (0.165, so 35 → 5.775 studs/s²). It combines with slow-mo. Analysis (P1.2), all measured headlessly:
+  - **Physically consistent.** A fixed launch (the Tumble scene) reaches `1/0.165` = 6.06× the Earth height (measured 6.07×) and stays up 6.06× as long.
+  - **Muscle-driven motion depends on `strengthGravityScaling`.** At the default 1 (P1.1 behaviour) strength follows gravity: every gravity-driven motion keeps its shape and is √6.06 ≈ 2.46× slower. A standing jump rises the same (1.95 vs 1.69 studs) with 2.7× the airtime (1.40 vs 0.52 s); the reference's moon jump shows ~1.5 s of airtime. At 0, Earth strength on the moon: real-moon physics, a 7.0-stud jump with 2.9 s of airtime.
+  - Holding a tuck: with spins that come from gravity-driven swings (release from the bar), the default holds the tuck exactly as well as fixed strength (spin gain ×1.99 vs ×2.00), because spin rates shrink with √g too. Only a launch spin that is *not* gravity-scaled (the Tumble test scene's fixed 7 rad/s) overpowers the weaker moon muscles.
+  - Decision: the multiplier is correct and is left as is; strength keeps following gravity by default (matches the reference's timing, and the moon plays like Earth in slow motion); `strengthGravityScaling` is the knob if you want real-moon jumps.
 - **Interpolation:** the renderer blends the previous and current body poses by alpha.
-- **Input:**
-  - held inputs apply to every step in a frame
-  - press edges apply at the frame's first step
-  - if a frame runs 0 steps, edges wait for the next step (never lost)
+- **Input** (as built, `Input.luau`): the client sends one device-independent frame per render frame (`Sim.setInput`).
+  - held inputs (arch, tuck, twist left/right) apply to every step in a frame
+  - presses are cumulative **counters**; the controller acts on every increase at its next step, so a press on a frame that runs 0 steps (slow motion, high frame rates, pause) waits instead of being lost, and several presses in one frame count once
+  - a press made before a Reset never fires after it; non-finite levels are sanitized
 - **Windows use simulation time by default**, so slow-mo is naturally easier. `windowsInRealTime` switches this.
 
 ## 10. Determinism
@@ -301,9 +349,9 @@ The reference never shows one-hand catches; hands always grip together. This sta
 ## 11. Known simplifications (on purpose)
 
 1. Paired limbs, no spine bend (as in the reference). Elbows exist but the elbow motor holds the arms nearly straight.
-2. Planar dynamics. Twist is a controlled render and target-projection layer, not emergent 3D rotation.
+2. Planar dynamics. Twist is a controlled render rotation plus an exact in-plane mirror, not emergent 3D rotation (no twisting somersault coupling).
 3. No self-collision.
-4. Prototype has no standing or balance logic: landing is physical, then auto-reset. Standing, jumping and hand-plants are Phase 2, built on the same solver.
+4. One planar pair of feet: no stepping. Balance recovery beyond the feet uses `balanceAssist`. Hand-plants, handstands and vaults are Phase 2, on the same solver.
 5. There's no crash ragdoll hand-off anymore. The core itself collapses physically on the floor.
 
 ## 12. Tuning parameters
@@ -348,8 +396,9 @@ In Studio during Play, these are editable as attributes on `ReplicatedStorage.Gy
 | Param | Default | Range | Unit | Notes |
 |---|---|---|---|---|
 | `jointHertz` / `jointDampingRatio` | 240 / 2 | 5–480 / 0–10 | Hz / ζ | Joint anchor stiffness (capped at ¼ substep rate) |
-| `motorHertz` / `motorDampingRatio` | 6 / 0.8 | 0.5–30 / 0–3 | Hz / ζ | Pose springs |
+| `motorHertz` / `motorDampingRatio` | 6 / 1.25 | 0.5–30 / 0–3 | Hz / ζ | Pose springs (P1.1 damping was 0.8) |
 | `shoulderMaxTorque` / `elbowMaxTorque` / `hipMaxTorque` / `kneeMaxTorque` / `ankleMaxTorque` | 3.0 / 2.0 / 2.0 / 1.0 / 0.3 | 0–20 | Mg·stud | Lower = floppier |
+| `strengthGravityScaling` | 1 | 0–1 | × | 1 = strength follows gravity (P1.1); 0 = Earth strength everywhere (§9) |
 
 **Body ⟲**
 
@@ -359,33 +408,50 @@ In Studio during Play, these are editable as attributes on `ReplicatedStorage.Gy
 | `upperArmLength` / `forearmLength` | 1.0 / 1.0 | 0.5–1.5 | studs |
 | `trunkLength` | 2.0 | 1.5–2.5 | studs |
 | `thighLength` / `shankLength` / `footLength` | 1.1 / 1.1 / 0.7 | 0.4–1.6 | studs |
+| `limbInertiaBoost` | 1 | 0–1 | × (0 = uniform capsules as in P1.1) |
 
-Mass fractions and radii are constants in `Rig.luau`.
+Mass fractions, radii, the heel (`FOOT_HEEL`), shank trim and the inertia profile are constants in `Rig.luau`.
+
+### P1.2 parameters (implemented, live-editable)
+
+**Shape** — `shapeFreqClose` / `shapeFreqOpen` 8 / 6 Hz (1–30; 30 ≈ no smoothing).
+
+**Swing**
+
+| Param | Default | Range | Unit | Notes |
+|---|---|---|---|---|
+| `gripShoulderHertz` | 18 | 1–60 | Hz | Shoulder springs while gripping (6 = P1.1) |
+| `gripFriction` | 0.02 | 0–1 | Mg·stud | |
+| `swingAssist` | 0 | 0–2 | × | Only in phase, only below the cap |
+| `maxSwingSpeed` | 12 | 4–30 | rad/s | Energy cap |
+
+**Release** — `releaseVelocityScale` / `releaseSpinScale` 1 / 1 (0.5–1.5 ×), `releasePop` 0 (0–20 studs/s). Defaults = pure physics.
+
+**Twist** — `twistMode` 0 (0 hold / 1 momentum), `twistRate` 1.5 rev/s (0.5–5), `twistAccel` / `twistStopAccel` 20 / 30 rev/s² (2–100), `twistSettleTime` 0.12 s (0–1).
+
+**Ground**
+
+| Param | Default | Range | Unit | Notes |
+|---|---|---|---|---|
+| `groundShapeHertz` | 2 | 0.5–30 | Hz | Crouch / rise / reach speed |
+| `groundLegHertz` / `groundLegDampingRatio` | 8 / 1 | 2–60 / 0–3 | Hz / ζ | Standing leg springs |
+| `groundLegStrength` | 1.5 | 0.5–5 | × | Leg strength while standing |
+| `footFlatHertz` | 4 | 0.5–30 | Hz | Keeps the foot flat |
+| `gravityCompensation` | 1 | 0–1.5 | × | Share of the weight the leg muscles carry |
+| `balanceHertz` / `balanceDampingRatio` | 1.5 / 1 | 0–6 / 0–3 | Hz / ζ | Ankle balance |
+| `balanceAssist` | 1 | 0–5 | Mg·stud (weight) | Ground-only assist; 0 = pure muscle |
+| `jumpStrength` | 1.5 | 0–6 | body weights | Push; rise ≈ this × crouch depth in studs |
+| `jumpLegStrength` | 3 | 0.5–8 | × | Leg torque cap during the push |
+| `jumpMinCrouch` / `jumpPushTime` / `jumpLockKnee` | 0.25 / 0.3 / 10 | 0–1 / 0.05–1 s / 0–60° | | |
+| `jumpSpinHertz` / `jumpArchSpin` | 4 / 0.8 | 0–20 Hz / 0–3 rev/s | | Spin control; backward spin with Arch |
+| `jumpTorsoHertz` / `jumpHertz` | 3 / 12 | 0–12 / 2–60 | Hz | Trunk steering / arm swing during the push |
+| `landingReflex` / `landingReflexTilt` | 1 / 45 | 0–1 / 5–90° | | Legs under the body before landing |
+| `landingHertz` / `landingDampingRatio` / `landingAbsorbTime` | 3 / 2.5 / 0.5 | | Hz / ζ / s | Landing damper |
+| `groundGrace` / `fallTiltAngle` | 0.06 / 75 | 0–0.3 s / 20–90° | | State thresholds |
 
 ### Later milestones (specified, not yet in `Tuning.luau`)
 
-`shapeFreqClose` / `shapeFreqOpen` (P1.2, input-driven shape control) and everything below are added when their milestone is built.
-
-### Swing
-| Param | Default | Range | Unit |
-|---|---|---|---|
-| `gripFriction` | 0.02 | 0–1 | × M·g·L |
-| `swingAssist` | 0 | 0–2 | × |
-| `maxSwingSpeed` | 12 | 4–30 | rad/s |
-
-### Release
-| Param | Default | Range | Unit |
-|---|---|---|---|
-| `releaseVelocityScale` / `releaseSpinScale` | 1.0 / 1.0 | 0.5–1.5 | × |
-| `releasePop` | 0 | 0–20 | studs/s |
-| `regrabLockout` | 0.15 | 0–0.5 | s |
-
-### Twist
-| Param | Default | Range |
-|---|---|---|
-| `twistMode` | hold | hold / momentum |
-| `twistRate` | 1.5 | 0.5–5 rev/s |
-| `twistAccel` / `twistStopAccel` | 20 / 30 | 2–100 rev/s² |
+Everything below is added when its milestone is built (P1.3 onward).
 
 ### Catch
 | Param | Default | Range | Unit |

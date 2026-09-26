@@ -1,6 +1,6 @@
 # Technical Design (v2)
 
-Status: **Approved.** P1.1 (physics foundation) is implemented; §6 lists what exists.
+Status: **Approved.** P1.1 (physics foundation) and P1.2 (movement control) are implemented; §6 lists what exists.
 
 v2 incorporates the reference-clip study ([REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md)). The main changes from v1:
 - The custom core becomes a **planar (2.5D) rigid-body solver with compliant joint motors and real contacts** instead of a reduced-coordinate model with scripted states.
@@ -160,12 +160,12 @@ Key rules:
 - **Fixed step:** 240 Hz, with an accumulator, render interpolation and a step cap. 240 = 4 × 60, so it maps onto `BindToSimulation` later.
 - **Time scale only changes how much sim time is added per frame.** Kinematic equipment moves as a function of **sim time**, so slow-mo slows it too.
 - **Deterministic on a device.** Tolerance-equal across devices.
-- **Inputs are data** (`InputFrame`): held shape amounts, twist, and press edges with step indices.
+- **Inputs are data** (`Input.Frame`, as built in P1.2): held levels (arch, tuck in 0..1; twist left/right) and **cumulative press counters** (Let Go, Grab, twist taps). The controller acts on every counter increase at its next step, so presses survive zero-step frames, and the same frames can be recorded, replayed, or sent to a server running the same simulation.
 - **The world slice is data:** 2D shapes in plane coordinates. It's built when the plane is set and refreshed when tagged parts stream in or out.
 
 ## 6. Prototype code architecture
 
-**As built in P1.1 (physics foundation):**
+**As built (P1.1 physics foundation + P1.2 movement control):**
 
 ```
 default.project.json            Rojo mapping (Players.CharacterAutoLoads = false)
@@ -177,26 +177,36 @@ src/shared/Gym/                 PURE CORE: no Roblox types; runs in Roblox and h
                                 spring motors, contacts + friction + restitution, warm start, substeps/relax,
                                 stiffness cap, velocity-expanded speculative contacts, metrics, checksum
   Collide2D.luau                Rounded segment (capsule/circle) vs convex polygon, 1–2 point manifolds
-  Rig.luau                      6-body gymnast, joints, anatomical angle mapping, poses, motor updates
-  Scenarios.luau                P1.1 test scenes: Hang, Drop, Tumble, Wheel (moving anchor)
+  Rig.luau                      6-body gymnast, joints, anatomical angle mapping (facing-aware), poses built
+                                by forward kinematics, per-joint motor drive, mass state, half-twist mirror
+                                and its clearance check
+  Input.luau                    (P1.2) Device-independent input frame: held levels + press counters
+  Controller.luau               (P1.2) Movement controller: modes grip/air/ground/fallen; shape smoothing;
+                                swing (grip friction, energy cap, optional assist); Let Go; twist; standing
+                                muscles and balance; jump push; landing reflex and absorption; events
+  Pose3D.luau                   (P1.2) 2.5D presentation math shared by renderer and tests (twist transform)
+  Scenarios.luau                Test scenes: Hang, Drop, Tumble, Wheel (moving anchor), Stand (P1.2)
   Sim.luau                      Fixed-step driver: accumulator, time scale, step cap, reset, NaN/out-of-bounds
-                                recovery, events, interpolation helpers
+                                recovery, events, interpolation helpers; control "pose" (P1.1) or "player"
 src/shared/GymTests/            Test specs (shared by the Lune runner and the in-Studio self-test)
-  TestRunner.luau, StudioRun.luau, Solver.spec, Contacts.spec, Rig.spec, Sim.spec
+  TestRunner.luau, StudioRun.luau, Solver.spec, Contacts.spec, Rig.spec, Sim.spec, Movement.spec (P1.2)
 src/client/                     PRESENTATION ONLY (reads simulation state, never writes physics)
-  init.client.luau              Bootstrap; one render step: advance sim -> draw -> camera
+  init.client.luau              Bootstrap; one render step: sample input -> advance sim -> draw -> camera
+  InputRouter.luau              (P1.2) Keyboard / gamepad / minimal touch Layout A -> one Input.Frame per frame
   Plane.luau                    2D plane <-> 3D world mapping
-  RigRenderer.luau              Stickman parts via BulkMoveTo, interpolated
+  RigRenderer.luau              Stickman parts via BulkMoveTo, interpolated, turned by the twist angle
   WorldRenderer.luau            Course, bar, wheel drawn from the solver's own shapes; contact markers
   CameraController.luau         Calm side view, smooth follow
-  DebugOverlay.luau             Timing, energy, momentum, joint error, contacts, angles, events
-  DebugControls.luau            P1.1 debug keys/buttons; live tuning attributes (ReplicatedStorage.GymTuning)
+  DebugOverlay.luau             Timing, energy, momentum, joint error, contacts, angles, movement state, input, events
+  DebugControls.luau            Debug keys/buttons (scene 1-5, pose override, slow-mo, moon, pause, step, contacts);
+                                live tuning attributes (ReplicatedStorage.GymTuning)
 src/server/init.server.luau     Runs the quick self-test in Studio on Play; nothing else
 tests/run.luau                  Headless test runner (Lune)
 tools/place_selftest.luau       Runs the BUILT place's tests through Roblox-style instance requires
 tools/client_harness.luau       Runs the BUILT place's client headlessly with engine shims; drives every control
 tools/inspect_place.luau        Prints the built place tree
 tools/solver_bench.luau         Solver settings comparison (stretch / energy / cost)
+tools/smooth_bench.luau         (P1.2) Smoothness comparison (response / overshoot / wobble / jerk / tuck gain)
 tools/lune_mirror.luau          Mirrors src/shared into build/lune for Lune (rewrites Roblox requires to file paths)
 ```
 
@@ -206,10 +216,10 @@ tools/lune_mirror.luau          Mirrors src/shared into build/lune for Lune (rew
 - Math helpers are inlined (no `Math2D.luau`) for speed.
 - Module loading: the core uses plain Roblox `require(script.Parent.X)`, so it's fully typed in Studio. The headless runner loads a mirrored copy with those lines rewritten to file requires.
 
-**Later milestones** (per the plan above):
-- `Shape`, input router, touch controls, tuning panel: P1.2
-- `Twist`, release/flight logic: P1.3
-- `Catch`, session log, feedback, instant replay: P1.4
+*P1.2 changes vs the plan:* `Shape` and `Twist` live in `Controller.luau` (one module owns all movement decisions and their shared state); the touch controls are part of `InputRouter` as a functional placeholder, not the mobile UI; the generated tuning panel is deferred (live attributes on `ReplicatedStorage.GymTuning` cover tuning).
+
+**Later milestones:**
+- `Catch`, regrab, fall + auto-reset loop, session log, feedback, tuning panel, instant replay: P1.3
 - `WorldSlice`, `Equipment`: Phase 2
 
 **Original plan (for reference):**
@@ -222,7 +232,7 @@ src/client/       Input/InputRouter · Input/TouchControls · Render/RigRenderer
                   Debug/SessionLog · Debug/InstantReplay
 ```
 
-**Prototype world (P1.1):**
+**Prototype world (P1.1–P1.2):**
 - a floor, two blocks and a ramp
 - one bar crossing the motion plane at 10 studs (point grip)
 - a rotating 4-spoke wheel (kinematic moving anchor)
@@ -259,6 +269,8 @@ All of this is defined as data in `Scenarios.luau`.
 - compact state
 - no clocks or randomness in `step`
 - effects driven by state and events
+
+*P1.2 check:* the movement controller keeps all of these. Its state is plain data (`sim.controller`) that depends only on input frames and the previous step's contacts, and it is bit-deterministic (tested). Press counters make input frames safe to resend or reorder (only increases matter). A remote snapshot now also needs `facing` (±1), the twist angle `ψ` and the mode; none of this changes the side view or the plane.
 
 **Product rules that shape networking:**
 - **No player-vs-player collision.** Everyone shares the static equipment.
