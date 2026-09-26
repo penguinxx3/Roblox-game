@@ -1,333 +1,304 @@
-# Technical Design
+# Technical Design (v2)
 
 Status: **Proposed — awaiting approval.** Nothing in here is implemented yet.
 
+v2 incorporates the reference-clip study ([REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md)). The main changes from v1:
+- The custom core becomes a **planar (2.5D) rigid-body solver with compliant joint motors and real contacts** instead of a reduced-coordinate model with scripted states.
+- The native-ragdoll crash hand-off is removed.
+- Moving equipment is part of the core.
+- The multiplayer time-scale conflict is flagged.
+
 This document covers:
 
-1. the physics architecture decision (three approaches compared)
+1. the physics architecture decision
 2. the recommended architecture
 3. the prototype's code architecture
-4. how later systems (multiplayer, avatars, replays, anti-exploit) fit without a rewrite
-5. technical risks
+4. how multiplayer, avatars, replays and anti-exploit fit later
+5. risks
 
-Physics math, state machine and every tuning parameter live in [PHYSICS_DESIGN.md](PHYSICS_DESIGN.md).
-How we judge "is the movement good" lives in [TESTING.md](TESTING.md).
+Physics details and every tuning parameter are in [PHYSICS_DESIGN.md](PHYSICS_DESIGN.md). Measuring movement quality is in [TESTING.md](TESTING.md).
 
 ---
 
 ## 1. Engine facts this decision rests on
 
-Verified in September 2026 against the live Roblox API dump and the Creator Docs, not from memory:
+Verified September 2026 against the live Roblox API dump and the Creator Docs:
 
 | Fact | Consequence |
 |---|---|
-| There is **no physics time-scale property** in the live API. `WorldRoot:StepPhysics` is plugin-only. | True slow motion with native physics is only possible by rescaling gravity, velocities and every actuator by hand. |
-| `workspace.Gravity` is a single global number. | Moon gravity works natively, but only as a global value. You can't give just one body its own gravity without extra forces. |
+| There is **no physics time-scale property** in the live API. `WorldRoot:StepPhysics` is plugin-only. | True slow motion with native physics means rescaling gravity, velocities and every actuator by hand. |
+| `workspace.Gravity` is one global number. | Moon gravity works natively only as a global value. |
 | Native physics can run at a fixed internal step (`PhysicsSteppingMethod = Fixed`, `UseFixedSimulation`). | Native physics is consistent across frame rates on its own. |
-| **Server Authority** (client prediction + rollback) has been live for all creators since July 2026. Custom logic runs in `RunService:BindToSimulation` (at most 60 Hz). Custom state syncs through attributes (max 64 per instance). Inputs come through the Input Action System. It requires `StreamingEnabled`, Deferred signals and fixed simulation. | Anti-exploit is no longer a reason to pick one approach over another. Both native physics and a custom simulation can run server-authoritative. |
-| `Raycast` / `Spherecast` / `Blockcast` / `Shapecast` / `GetPartBoundsInRadius` / `BulkMoveTo` are marked Simulation Access. | A custom simulation can use the engine's collision queries, even inside a server-authoritative simulation. |
-| `UnreliableRemoteEvent` payload limit is about 900–1000 bytes. | Custom pose replication must use small, packed snapshots. That's easy: about 50 bytes each. |
-| The Animator overwrites `Motor6D.Transform` between PreAnimation and PreSimulation, but only while animation tracks are playing. `Motor6D.Transform` is Simulation Access. | Real avatars can be posed from our simulation by writing joint transforms in `PreSimulation` with no tracks playing. |
-| Input events are delivered once per rendered frame, with no timestamp inside the frame. | Input timing precision is limited by frame rate (±16 ms at 30 fps). Catch and release windows must be designed around this whichever approach we pick. |
+| **Server Authority** (client prediction + rollback) has been live for all creators since July 2026. It uses `RunService:BindToSimulation` (≤ 60 Hz), attributes for custom state (≤ 64 per instance) and the Input Action System, and requires `StreamingEnabled`, Deferred signals and fixed simulation. | Anti-exploit is no longer a reason to pick one approach: native physics and a custom simulation can both be server-authoritative. |
+| Spatial queries (`Raycast`, `Spherecast`, `Blockcast`, `Shapecast`, `GetPartBoundsInRadius`) and `BulkMoveTo` are Simulation Access. | A custom simulation can read map geometry, even inside a server-authoritative simulation. |
+| `UnreliableRemoteEvent` payloads are limited to about 900–1000 bytes. | Custom replication uses small packed snapshots (about 50 bytes). |
+| The Animator only overwrites `Motor6D.Transform` while tracks are playing (between PreAnimation and PreSimulation). | Avatars can be posed from our simulation. |
+| Input events arrive once per rendered frame, with no timestamp inside the frame. | Input timing is frame-quantized (±16 ms at 30 fps) under every approach. |
 
----
+## 2. What the reference clips require
 
-## 2. The three approaches
+The architecture must deliver the following. The evidence is in REFERENCE_ANALYSIS §2–4.
+
+1. **Planar (2.5D) motion:** a side-view plane, with twist as a 3D render layer.
+2. **Unbroken momentum** through release and catch.
+3. **Compliant, alive limbs:** held by springy joints that give under load.
+4. **Real contacts:** landing on feet or hands, handstands, vaults, lying across edges. These are core to the original (Phase 2 for us), not crashes.
+5. **Moving equipment:** rotating spoked wheels, pivoting handles.
+6. **Slow motion that slows the whole world**, equipment included, plus moon gravity.
+7. **Replays** at variable speed for clip creation.
+
+## 3. The three approaches
 
 ### Approach 1 — Roblox native physics + custom controllers
 
-The body is about 10 unanchored parts joined by `BallSocketConstraint` / `HingeConstraint`:
-- Arch and Tuck drive servo target angles.
-- Grabbing creates a constraint between hands and bar (`CylindricalConstraint` or `BallSocketConstraint`). Letting go disables it.
-- Twist is applied as a torque.
-- The client owns its body (network ownership) or it runs under Server Authority prediction.
+About 5–10 unanchored parts with `HingeConstraint` servos (Arch/Tuck), a runtime grip constraint, and a `PlaneConstraint` to keep it planar.
 
 **Advantages**
-- Fastest route to *something* swinging.
-- Collision with any geometry (meshes, terrain, moving parts) for free. Physical equipment (swinging trapeze, ropes, props) for free.
-- Movement replication for free.
-- C++ solver: very fast, runs at a fixed internal step.
-- Realistic tumbling and crashes emerge on their own.
+- Contacts, friction, landings, vaults and handstands against any geometry come for free.
+- Moving and reactive equipment come for free.
+- Replication and C++ performance come for free.
+- The reference clearly relies on general contact physics, which is the **strongest argument for native**.
 
 **Disadvantages**
-- **Slow motion is the deal-breaker.** There is no time scale. Faking it means scaling gravity by s², every velocity by s, and every servo torque, servo speed, spring and damper by s² or s. Every future force source has to be re-scaled too, both entering and leaving slow-mo. Community libraries (e.g. "MoonScale") do this broadly, which shows it is possible but approximate. Slow-mo and moon gravity together are exactly the settings in the viral clips, so they can't be approximate.
-- **The swing feel comes from a solver we can't see into.**
-  - Pumping efficiency, energy loss per swing and joint softness depend on how the solver treats joint stiffness, mass ratios and iteration counts.
-  - Servos on light limbs at high angular speed tend to jitter or go soft.
-  - When a swing "feels wrong" there's no single number to change.
-- **No rewinding.** We can't rewind engine physics to grant a slightly-late grab, and we can't check a catch using the hands' swept path within one step.
-- **Snapping the hands to the bar is jerky.** Creating a constraint while the hands are 0.5 studs away produces a large correction impulse. Smoothing it (AlignPosition ramps) adds latency and mushiness to the most important moment in the game.
-- **Other players' bodies.** A ragdoll made of many constraint-connected assemblies replicates as many separate objects. Other players' limbs can stretch or jitter under packet loss. Under Server Authority, a chaotic multi-body ragdoll is close to the worst case for mispredictions.
-- **Replays.** Engine physics isn't deterministic, so replays must be recorded pose snapshots. That part is fine, but there are no input-log replays or re-simulation checks.
+- **Slow motion:** there's no time scale. The reference shows slow-mo slowing *everything*, character and equipment alike, uniformly and smoothly. Faking that means rescaling every force, velocity, servo and spring on every change, which is fragile and only approximate.
+- **Opaque feel:** swing energy, joint softness and servo behavior come from a solver we can't see into. Servos on light limbs at high spin rates jitter or go soft.
+- **Catch quality:** there's no way to rewind for fair late grabs. Snapping hands onto a grip makes a correction impulse, and smoothing it adds latency.
+- **Multiplayer:** many-assembly ragdolls replicate heavily and jitter. Under Server Authority, a chaotic ragdoll is close to the worst case for mispredictions.
+- **Replays:** snapshots only; no input-log verification.
 
-### Approach 2 — Fully custom character physics
+### Approach 2 — Fully custom 3D character physics
 
-Everything is written in Luau:
-- a general articulated ragdoll (e.g. position-based dynamics), collision against the world, contacts, and friction
-- a fixed-step loop, rendering by moving anchored parts, and our own networking
+A general 3D ragdoll with 3D contacts against arbitrary geometry, all in Luau.
 
 **Advantages**
-- Total control: time scale, gravity, catch rules, momentum and determinism are all ours.
-- Frame-rate independent, with a fixed step and render interpolation.
-- Rewind and re-simulate is possible (for late-grab grace, replays and input-log checks).
-- Tiny network footprint; the server only relays small snapshots.
+- Total control: slow-mo, determinism, rollback, tuning.
 
 **Disadvantages**
-- **Largest build and maintenance cost by far.**
-  - A robust general ragdoll with world contact and friction in Luau is a physics-engine project.
-  - Every future map feature (slopes, meshes, moving platforms, physical equipment) needs custom collision and response.
-- **Luau cost.** A general ragdoll with contacts at 240 Hz fits one player on a low-end phone, but not with much headroom. Contact-heavy moments (landings, tumbles) are the expensive ones.
-- **It re-builds what the engine already does well.** Uncontrolled tumbling and crashing looks as good or better with native physics.
-- **More code, more bugs.** Stability issues (explosions, jitter, drift) become ours to find and fix.
+- A full 3D physics engine project: 3D contacts against arbitrary meshes, 3D friction, stability.
+- The heaviest in Luau.
+- **Most of it is unnecessary**, because the reference game is planar.
 
-### Approach 3 — Hybrid (recommended)
-
-Split by what each system is good at:
+### Approach 3 — Hybrid with a planar custom core (recommended)
 
 | Responsibility | Owner |
 |---|---|
-| **Controlled movement** — hanging and swinging, Arch/Tuck/Pike shaping, Let Go, flight, flips, twists, intentional catch, momentum transfer | **Custom gameplay-physics core** (small, reduced-coordinate model, pure Luau, fixed step) |
-| Collision *detection* against the map (floor, walls, obstacles) | Engine spatial queries (`Spherecast`/`Shapecast`/`Raycast`) |
-| **Uncontrolled movement** — crash and ragdoll after a failed landing, props, decoration (post-prototype) | **Native Roblox physics** (hand-off from the core) |
-| Bars and equipment | Regular Studio parts tagged `Bar` with attributes. The core reads their geometry. |
-| Rendering | Anchored rig moved with `BulkMoveTo` (prototype), later the player's R15 avatar posed through `Motor6D.Transform` |
-| Networking (post-prototype) | Either custom snapshot replication or Roblox Server Authority running the same core in `BindToSimulation` (see §6) |
-
-The core is **not** a general ragdoll. It's a purpose-built model of a gymnast:
-- a chain of 4 rigid segments (arms, trunk with head, thighs, shanks)
-- whose shape is driven by the player's Arch/Tuck input
-- simulated exactly in two modes:
-  - **Hanging:** 1 free swing angle around the bar
-  - **Flight:** a projectile center of mass, plus rotation that conserves angular momentum while the body shape changes its inertia
-- plus a designed catch system
-
-This is how real gymnastics biomechanics models work. It's also why tucking spins you faster and good Arch/Tuck timing pumps the swing; neither has to be faked. Details in [PHYSICS_DESIGN.md](PHYSICS_DESIGN.md).
+| **Everything the player's body does:** swinging, shaping, release, flight, catch, landing and contact, plus moving/reactive equipment the player interacts with | **Custom 2D core:** 5 rigid bodies, compliant joint motors, contacts, grip joints, equipment bodies. Pure Luau, fixed step, in the player's motion plane. |
+| Twist, and the 3D look of the body | Render layer: 2D state + twist angle → 3D pose |
+| Map authoring | Normal Studio parts, tagged. The core builds a **2D world slice** from the part shapes the motion plane cuts through. |
+| Rendering, avatars, UI, audio | Roblox (anchored rig via `BulkMoveTo` in the prototype; R15 avatars through `Motor6D.Transform` later) |
+| Decorative props and debris | Native Roblox physics (not gameplay-relevant) |
+| Networking | Custom snapshots or Server Authority running the same core (§7) |
 
 **Advantages**
-- Everything that decides whether the game *feels* good is ours: exact, tunable, time-scalable, rewindable.
-- The model is tiny: a few hundred math operations per step. Cost is negligible even at 240 Hz on low-end phones, and the server can afford to run it for every player (Server Authority path).
-- The rest stays native: arbitrary map geometry for collision checks, native ragdoll for crashes, normal Studio map building.
-- The core is a pure module with no Instances. It is unit-testable outside Roblox (Lune) and portable into `BindToSimulation` later.
+- Everything the reference shows is covered by **one set of equations**: contacts, compliant limbs, momentum continuity, equipment. There are no mode switches and no hand-offs.
+- Slow-mo and moon gravity are exact and apply to the player's whole simulated world, equipment included.
+- A 2D solver with 5 bodies is small: about 1 M simple operations per second at 240 Hz, measured against the budget in §10.
+- Deterministic on a device, rewindable (fair late grabs, replays), and unit-testable outside Roblox.
+- Planar gameplay removes steering from the controls, which is a big win for mobile.
 
 **Disadvantages (honest)**
-- **Two physics worlds.** The hand-off between the core and native ragdoll (crash) must convert state carefully. It's done in one place, one way per crash.
-- **Rich contact during controlled movement isn't free.** If the body brushes a wall mid-swing, the core has to decide what happens: crash, slide, or later a wall-kick mechanic. We accept this. In controlled states, touching the world is a designed event, not general contact.
-- **Reactive equipment is our job.** A trapeze or rings that swing because of the player's weight must be modeled as extra links in the core. That's more work than native, but still bounded.
-- **Crash ragdolls don't slow down.** The native ragdoll can't be put in slow motion. Options: keep crashes short, or add a simple custom tumble for slow-mo sessions. Decided in Phase 2.
-- **We own the numerics.** This is mitigated by automated tests: energy, stability, frame-rate independence (see [TESTING.md](TESTING.md)).
+- **We own a 2D contact solver.** That's a real engineering component: joints, motors, contacts, friction, warm starting, roughly 1.5–2.5k lines. It's well understood (Box2D-style), and heavy automated tests (TESTING A-series) cover it, but it's more work than v1's reduced-coordinate model.
+- **World-slice limits.** Gameplay collision supports primitive shapes: blocks, wedges, cylinders and balls cut by the plane, plus authored segments and points. Arbitrary meshes need simple proxy shapes. That's acceptable for this art style.
+- **The planar product constraint.** Maps are built as lanes or planes (see GAME_PLAN §7). That's a product decision, not just a technical one.
+- **Shared reactive equipment in multiplayer** needs a rule (§7).
 
----
+**Why v1's reduced-coordinate model was dropped:** it's exact for hanging and flight, but it can't express multi-contact landings, handstands, vaults, lying on edges or reactive wheels without a growing list of special cases. The reference shows all of these, so the general 2D solver is the safer base even though the prototype only uses one bar and the floor.
 
-## 3. Comparison against the required criteria
+## 4. Comparison against the required criteria
 
 Ratings: ★★★ strong · ★★ workable with effort · ★ weak or risky.
 
-| Criterion | 1 Native + controllers | 2 Fully custom | 3 Hybrid |
+| Criterion | 1 Native + controllers | 2 Fully custom 3D | 3 Hybrid, planar core |
 |---|---|---|---|
-| Very responsive mobile controls | ★★ Local ownership gives instant response, but servo lag and softness make Arch/Tuck feel mushy | ★★★ We define every response curve | ★★★ Same as 2 |
-| Smooth swinging and momentum | ★★ Works, but energy behavior comes from the solver; pumping consistency is hard | ★★★ If built well (big if) | ★★★ Exact reduced-coordinate model, no drift or jitter |
-| Arch / Tuck / Let Go / Twist | ★★ Arch/Tuck OK through servos; twist torques fight the solver | ★★★ | ★★★ |
-| Intentional grab and regrab | ★ No rewind, no swept test, jerky snap | ★★★ | ★★★ Windows, swept test, rollback for late grabs, exact momentum transfer |
-| Flips and body rotation | ★★★ Emergent and realistic | ★★ Depends on solver quality | ★★★ Momentum conserved, tuck-speeds-up-spin is exact |
-| Realistic but game-friendly momentum | ★ Bending engine physics needs hacky extra forces | ★★★ | ★★★ Pump gain, transfer and boost are single numbers |
-| Slow motion | ★ No time scale; manual rescaling is fragile | ★★★ | ★★★ (crash ragdoll excepted, see above) |
+| Very responsive mobile controls | ★★ Instant with local ownership; servo softness | ★★★ | ★★★ |
+| Smooth swinging and momentum | ★★ Solver-dependent | ★★ Hard to get right in 3D | ★★★ Small 2D solver, tested |
+| Arch / Tuck / Let Go / Twist | ★★ | ★★★ | ★★★ Twist as a designed layer |
+| Intentional grab and regrab | ★ No rewind, jerky snap | ★★★ | ★★★ Windows, swept test, rollback |
+| Flips and rotation | ★★★ | ★★ | ★★★ |
+| Game-friendly momentum | ★ | ★★★ | ★★★ |
+| Contacts (landings, handstands, vaults) | ★★★ Free | ★★ Hard in 3D | ★★★ 2D contacts |
+| Slow motion (whole world) | ★ | ★★★ | ★★★ |
 | Moon gravity | ★★★ | ★★★ | ★★★ |
-| Multiplayer sync | ★★ Free, but many-assembly ragdolls replicate heavily and jitter | ★★ We must build it (moderate) | ★★★ Tiny snapshots, or Server Authority running the same core |
-| Performance across devices | ★★★ C++ | ★★ General ragdoll plus contacts in Luau is heavy | ★★★ Tiny model |
-| Network latency | ★★ Same for everyone: your own input is instant, others are seen ~100–150 ms late | ★★ | ★★ |
-| Exploit resistance | ★★ Client-owned by default; Server Authority fixes it, but chaotic ragdolls mispredict | ★★ Client-authoritative unless re-simulated | ★★★ Compact state makes plausibility checks easy, and running the core under Server Authority is realistic |
-| Replay and recording | ★★ Snapshots only | ★★★ Snapshots and input logs | ★★★ |
-| Future maps and equipment | ★★★ Anything | ★ Custom collision for everything | ★★ Map collision via engine queries; reactive equipment is modeled per type |
-| Development complexity | ★★ Low start, high cost fighting the solver later | ★ Highest | ★★ Medium, with clear boundaries |
+| Multiplayer sync | ★★ Heavy ragdoll replication | ★★ | ★★★ Tiny snapshots or Server Authority |
+| Device performance | ★★★ C++ | ★ Heavy | ★★★ 5 bodies in 2D |
+| Network latency | ★★ The same for all: own input instant, others ~100–150 ms | ★★ | ★★ |
+| Exploit resistance | ★★ Server Authority possible, but chaotic ragdolls mispredict | ★★ | ★★★ Compact state; Server Authority practical |
+| Replay and recording | ★★ Snapshots only | ★★★ | ★★★ |
+| Future maps and equipment | ★★★ Anything | ★ | ★★ Primitive shapes + tagged equipment; meshes need proxies |
+| Development complexity | ★★ Low start, fighting the solver later | ★ Highest | ★★ Medium-high, bounded, testable |
 | Precise tuning | ★ | ★★★ | ★★★ |
-| Consistent across frame rates | ★★★ Fixed internal step (slow-mo hack aside) | ★★★ Fixed step + interpolation | ★★★ |
-| Many players per server | ★★ | ★★★ Server only relays | ★★★ |
+| Consistent across frame rates | ★★★ (slow-mo hack aside) | ★★★ | ★★★ |
+| Many players per server | ★★ | ★★ | ★★★ Server relays or runs a cheap 2D solver per player |
 
-**When Approach 1 would be the right call instead:**
-- if the game were mainly about chaotic physical interaction (knocking each other over, pushing objects)
-- if slow motion weren't a core feature
-- if we needed something in days rather than quality
+**When Approach 1 would be right instead:** if slow-mo weren't core, or if gameplay were full 3D free roaming with physical interaction between players. Neither is the case.
 
-None of those apply here.
+**Fallback:** if the prototype fails its feel gate after the planned tuning rounds (TESTING §6), we build a 1–2 day native-physics spike of the same scene (planar-constrained ragdoll) before changing direction.
 
-**Hybrid variants considered and rejected**
-- *Native body + custom slow-mo and grab layers.* Slow-mo is still the fragile rescale hack, and catch snapping is still jerky.
-- *Custom core driving a native "puppet" through `AlignPosition`/`AlignOrientation`* (so the body pushes world objects). This adds lag and jitter to the controlled movement. It may come back later for cosmetic secondary motion only.
-
-**Fallback plan:** if the hybrid prototype fails its feel gate after the planned tuning rounds (see [ROADMAP.md](ROADMAP.md)), we build a 1–2 day native-physics spike of the same scene. That gives us evidence, not opinion, before changing direction.
-
----
-
-## 4. Recommended runtime architecture
+## 5. Runtime architecture
 
 ```
-                         ┌───────────────── shared (ReplicatedStorage) ─────────────────┐
-                         │  Gym core (pure Luau, no Instances inside step)                │
-                         │   Tuning · Body · Shape · Hang · Flight · Catch · Sim          │
-                         │   step(state, inputFrame, dt, world) -> state, events          │
-                         └───────────────────────────────▲──────────────────────────────┘
-                                                         │
- client ─────────────────────────────────────────────────┼─────────────────────────────────
-  Touch / Keyboard / Gamepad ─► InputRouter ─► InputFrame┘
-                                                         │
-  RenderStep (priority: after Input, before Camera):     │
-    1. InputRouter.collect()                             │
-    2. SimDriver.advance(realDt)  ── fixed 240 Hz steps ─┘  (accumulator, timeScale, max steps)
-    3. RigRenderer.draw(interpolate(prev, curr, alpha))     (BulkMoveTo, same frame)
-    4. CameraController.update()
-    5. Feedback.handle(events)  (sound, camera kick, haptics)
-    6. DebugOverlay / DebugPanel
-
+                         ┌──────────────────── shared (ReplicatedStorage) ─────────────────────┐
+                         │  Gym core (pure Luau; no Instances inside step)                      │
+                         │   Tuning · Body · Solver2D · Collide2D · WorldSlice · Equipment      │
+                         │   Shape · Twist · Catch · Sim                                        │
+                         │   step(state, inputFrame, dt, worldSlice) -> state, events           │
+                         └────────────────────────────────▲────────────────────────────────────┘
+ client ──────────────────────────────────────────────────┼──────────────────────────────────────
+  Touch / Keyboard / Gamepad ─► InputRouter ─► InputFrame ┘
+  RenderStep (after Input, before Camera):
+    1. InputRouter.collect()
+    2. SimDriver.advance(realDt)  — fixed 240 Hz steps, accumulator, timeScale, step cap
+    3. RigRenderer.draw(interpolate(prev, curr, alpha), twist)   — BulkMoveTo, same frame
+    4. CameraController.update()   — side view, smooth follow
+    5. Feedback.handle(events)     — sound, haptics
+    6. Debug overlay / panel / recorder
  server (prototype): disables default character spawning. Nothing else.
 ```
 
 Key rules:
-- **One-frame input pipeline.** Input arrives → the simulation advances → the rig and camera move, all inside the same render step. There's no waiting on the network or on physics.
-- **Fixed step, 240 Hz by default.** Tunable 120/240/480. An accumulator drives it, render interpolation smooths between steps, and the step count per frame is capped so a slow frame can't snowball. 240 is a multiple of 60, so the same code can later run as 4 sub-steps per 60 Hz `BindToSimulation` tick.
-- **Time scale only changes how much sim time we add per frame.** Physics code never sees it. Slow-mo is therefore exact.
-- **The core is deterministic on a given device.** Same inputs per step give the same result. Across devices it matches to within tolerance (floating-point library differences). We never promise bit-exact results across platforms.
-- **The core never touches Instances inside `step`.** The world (bars, floor, colliders) is passed in as plain data. Collision queries go through a small interface, which is the engine in the game and a stub in tests.
-- **Inputs are data.** The core only consumes an `InputFrame` of held states, an analog amount, and press edges with their step index. Touch, keyboard, gamepad, Input Action System and replays all produce the same structure.
+- **One-frame input pipeline:** input → simulation → rig and camera in the same render step.
+- **Fixed step:** 240 Hz, with an accumulator, render interpolation and a step cap. 240 = 4 × 60, so it maps onto `BindToSimulation` later.
+- **Time scale only changes how much sim time is added per frame.** Kinematic equipment moves as a function of **sim time**, so slow-mo slows it too.
+- **Deterministic on a device.** Tolerance-equal across devices.
+- **Inputs are data** (`InputFrame`): held shape amounts, twist, and press edges with step indices.
+- **The world slice is data:** 2D shapes in plane coordinates. It's built when the plane is set and refreshed when tagged parts stream in or out.
 
----
-
-## 5. Prototype code architecture
-
-Only what the prototype needs. Rojo project; the files are the source of truth.
+## 6. Prototype code architecture
 
 ```
 default.project.json            Rojo mapping. Players.CharacterAutoLoads = false; test world (floor + 1 bar)
 rokit.toml                      Pinned toolchain: rojo, lune, stylua, selene
-selene.toml, stylua.toml        Lint / format config
+selene.toml, stylua.toml
 src/shared/Gym/
-  Tuning.luau                   Every parameter: default, min, max, unit, category, description
-                                (drives the debug panel and the tests)
-  Types.luau                    State / InputFrame / Event types
-  MathUtil.luau                 Small vector and quaternion helpers (pure Luau)
-  Body.luau                     Segment lengths and masses, forward kinematics, center of mass, inertia tensor
-  Shape.luau                    Arch/Tuck/Pike targets, per-joint spring tracking
-  Hang.luau                     Two-hand swing about the bar (1 free angle + shape)
-  Flight.luau                   Projectile center of mass, angular momentum, twist control
-  Catch.luau                    Grab attempts, windows, swept proximity, rollback grace, momentum transfer
-  Sim.luau                      State machine, fixed-step driver API, history ring buffer, events
+  Tuning.luau                   Every parameter: default/min/max/unit/category/description
+  Types.luau                    State, InputFrame, Event types
+  Math2D.luau                   2D vector and rotation helpers (plain numbers)
+  Body.luau                     Rig definition: 5 bodies, colliders, masses, joints, limits, pose tables
+  Solver2D.luau                 Bodies, revolute joints + limits + spring motors, grip joint, contacts,
+                                friction, warm start, relax, restitution
+  Collide2D.luau                Narrow phase: capsule/circle/box vs polygon/circle/capsule
+  WorldSlice.luau               Plane definition; world parts → 2D shapes (pure given part data)
+  Equipment.luau                Grip targets (points/segments); static / kinematic(t) / dynamic bodies
+  Shape.luau                    Input → pose targets (arch/tuck/pike), close/open frequencies
+  Twist.luau                    ψ control, target projection
+  Catch.luau                    Attempts, windows, swept proximity, rollback grace, transfer, quality
+  Sim.luau                      Fixed-step driver API, derived states, history ring buffer, events
 src/client/
-  init.client.luau              Bootstrap, render-step binding, disables default controls
+  init.client.luau              Bootstrap, render-step binding, disables default controls and camera
   Input/InputRouter.luau        Touch/keyboard/gamepad → InputFrame; edge queue
-  Input/TouchControls.luau      On-screen buttons: press-on-touch-down, multi-touch, slide-between,
-                                enlarged hit zones, layouts A/B
-  Render/RigRenderer.luau       Capsule stickman rig (anchored parts, BulkMoveTo), interpolation, catch blend
-  Render/CameraController.luau  Side-on follow camera
-  Render/Feedback.luau          Catch sound, camera kick, haptics where supported
-  Debug/DebugPanel.luau         Auto-generated from Tuning: categories, sliders, numeric entry, presets,
-                                import/export
-  Debug/DebugOverlay.luau       FPS, steps/frame, sim cost, state, energy, catch timeline, last catch report
-  Debug/DebugDraw.luau          Catch-range sphere, grippable span, predicted hand path (toggle)
-  Debug/SessionLog.luau         Every grab attempt/catch/release logged; export as text for analysis
-src/server/init.server.luau     Minimal (nothing gameplay-related)
-tests/                          Lune specs: stability, energy, pumping, frame-rate independence,
-                                catch windows, momentum transfer
-tuning/presets/*.json           Saved tuning presets (committed = shared source of truth)
+  Input/TouchControls.luau      Press on touch-down, multi-touch, slide-between, hit padding, layouts A/B,
+                                opacity 0 = hidden but active
+  Render/RigRenderer.luau       Stickman rig (anchored parts) from 2D state + twist; interpolation; catch blend
+  Render/CameraController.luau  Side view, smooth follow, look-ahead
+  Render/Feedback.luau          Catch sound, haptics
+  Debug/DebugPanel.luau         Generated from Tuning: sliders, numeric entry, presets, import/export
+  Debug/DebugOverlay.luau       Timing, state, joint saturation, spin rate, catch timeline, last catch
+  Debug/DebugDraw.luau          Catch radius, grip targets, contacts, predicted hand path
+  Debug/SessionLog.luau         Every press/attempt/catch/miss/release with details; export
+  Debug/InstantReplay.luau      (proposed) last 10 s, scrub at any speed
+src/server/init.server.luau     Minimal
+tests/                          Lune specs (TESTING §2)
+tuning/presets/*.json
 ```
 
-**Prototype world:** a flat floor and one horizontal bar about 10 studs high (real high-bar height at our scale), tagged `Bar`. The player starts hanging still.
+**Prototype world:**
+- a floor
+- one bar crossing the motion plane (a point grip target), about 10 studs high, tagged `Bar`
 
-**Prototype character:** a capsule stickman on the fixed gameplay skeleton. There's no Humanoid, avatar or Roblox character. Avatars come in Phase 3 (see §7). Testing feel on the bare skeleton first keeps avatar problems out of the movement evaluation.
+**Prototype character:** a stickman in our own style (not the reference look, see REFERENCE §6), drawn on the 5-body skeleton. There are no avatars, Humanoid or Roblox character yet.
 
-**Build and run:** `rojo build -o build/GymProto.rbxl`. Open it in Studio and press Play; nothing to install. Optionally, `rojo serve` + the Rojo plugin gives live sync. Rojo, Lune, StyLua and Selene can all be installed from crates.io; in this cloud environment crates.io is reachable and GitHub release downloads are not.
+**Build:** `rojo build -o build/GymProto.rbxl`. Open it in Studio and press Play. Optionally use `rojo serve` for live sync. All tools install from crates.io, which is reachable from the cloud environment.
 
----
+## 7. Multiplayer (designed for, not built in the prototype)
 
-## 6. Multiplayer — designed-for, not built in the prototype
+**Path A — client-authoritative core + snapshots**
+- Each client simulates only itself: zero input latency, zero mispredictions.
+- 20–30 Hz snapshots over `UnreliableRemoteEvent`, about 50 bytes each: root position, 5 body angles, twist, grip id, flags and a time.
+- Remote players are drawn from about 100 ms of interpolation.
+- The server relays snapshots and plausibility-checks them.
+- Bandwidth: about 1.5 KB/s up and about 30 KB/s down per client at 20 players.
 
-The prototype is single-player. The core is written so that either of two networking paths stays open. We choose between them with a spike in Phase 3.
+**Path B — Server Authority running the same core**
+- `BindToSimulation` at 60 Hz with 4 × 240 Hz sub-steps.
+- State in attributes on a predicted instance: 5 bodies × 6 values plus about 10 more ≈ 40 numbers, within 64.
+- Inputs through the Input Action System.
+- Measure first:
+  - floating-point drift causing rollbacks
+  - catch reversals (mitigated by the server tolerance in PHYSICS §7.8)
+  - server CPU at N players
+  - maturity
 
-**Path A — client-authoritative core + custom snapshot replication**
-- Each client simulates only its own gymnast: zero input latency, zero mispredictions.
-- 20–30 Hz packed pose snapshots over `UnreliableRemoteEvent`, about 50 bytes each: root position, orientation quaternion, 3 shape angles, state flags, bar id and a timestamp.
-- The server relays snapshots and plausibility-checks them (see §8). Remote players are drawn from an interpolation buffer about 100 ms behind.
-- Bandwidth at 20 players: about 1.5 KB/s upload and about 30 KB/s download per client. Server CPU is a relay only.
+**Decided in a Phase 3 spike.** Constraints we honour now so both paths stay open:
+- a pure core
+- a fixed step
+- per-step `InputFrame`
+- compact state
+- no clocks or randomness in `step`
+- effects driven by state and events
 
-**Path B — Roblox Server Authority running the same core**
-- The core runs in `BindToSimulation` at 60 Hz (4 × 240 Hz sub-steps) on client and server.
-- State lives in attributes on a predicted instance. The core needs about 25–35 numbers, within the 64-attribute limit.
-- Inputs come through the Input Action System.
-- Cheat-resistant by construction.
-- Risks to measure in the spike:
-  - cross-platform floating-point differences causing frequent small rollbacks
-  - a catch near the edge of its window being reversed by a server correction. That would be terrible feel; the design must make catch outcomes tolerant (see PHYSICS_DESIGN §7.8).
-  - the required settings (StreamingEnabled, Deferred signals, Input Action System)
-  - maturity: the feature is only a few months old
+**Product rules that shape networking:**
+- **No player-vs-player collision.** Everyone shares the static equipment.
+- **Moving equipment and time scale — a real conflict (flagged).** In the reference, slow-mo slows the whole world, equipment included. In a shared server, one player's slow-mo can't slow the wheel everyone else is using. Options:
+  1. **(Recommended for launch)** Slow-mo in **solo and private servers** and in the **replay tool** (record at 1×, play back slowed). Public servers run at 1×. Moon gravity stays per-player, since it only affects your own body.
+  2. Per-player equipment clocks: every client runs kinematic equipment on its own sim time. That's consistent for yourself, but remote players riding a wheel won't line up with the wheel as you see it.
+  3. A server-wide time scale that the private-server owner controls.
+- **Reactive (dynamic) equipment**, like a free-spinning wheel pushed by a player's weight, is **per-player instanced**. Each player simulates their own copy; others see it through that player's snapshot while they use it. Because players never collide, this is invisible in practice.
+- Server-side systems (proximity, voice, streaming focus) follow the simulated position through an anchored root part and `ReplicationFocus`. With `StreamingEnabled`, bar and equipment models use persistent or atomic streaming, and the world slice handles parts streaming in and out.
 
-Design constraints we honour **now** so both paths stay possible:
-- the core is pure
-- it has a fixed step
-- inputs arrive per step as an `InputFrame`
-- state serializes into fewer than 40 numbers
-- no `os.clock()` or randomness inside `step`
-- rendering and effects are driven from state and events, never from inside the step
+## 8. Avatars (Phase 3, designed now)
 
-Settled product rules that shape networking:
-- Players never collide with each other. Bars are shared.
-- Slow-mo and moon gravity are per-player in the sandbox (others see you in slow motion). They're locked in competitive modes.
-- Server-side systems (proximity, voice, streaming focus) follow the simulated position: the server keeps an anchored root part near the reported position and sets `ReplicationFocus`.
-- With `StreamingEnabled`, bars must be streamed in before they can be caught. Bar models use persistent or atomic streaming, and the bar registry tolerates bars appearing and disappearing.
+- The game is set to R15 only, with body scale limited to standard proportions. Gameplay always uses the fixed 5-body skeleton.
+- Avatar root anchored and CFramed from the simulation. Joints are posed by writing `Motor6D.Transform` in PreSimulation, with no tracks playing and the Animate script removed. Twist is applied to the root.
+- Elbows stay straight, matching the skeleton. Hands are placed on grips with a small IK correction.
+- A stickman mode setting stays, for clarity and clips.
+- 20 posed avatars must be measured on the low-end phone.
 
----
+## 9. Replays, recording and anti-exploit
 
-## 7. Avatars (Phase 3, designed now)
+- **Recording from day one:** the core emits compact per-step pose frames; a ring buffer holds about 15 s at 30 Hz (under 100 KB).
+  - Prototype: a **debug instant replay** (proposed): scrub and slow-mo the last 10 s. It's a tuning tool for inspecting catches, not a player feature.
+  - Phase 2: the player replay tool with speed control and free cameras (our own UI). The reference shows this is central to clip creation.
+- **Anti-exploit (Path A):**
+  - speed checked against an energy bound
+  - map bounds
+  - catches only on existing targets near the reported position
+  - legal state order
+  - leaderboard runs verified by server re-simulation of input logs within tolerance
+- **Anti-exploit (Path B):** authority is built in.
+- **Economy** is decided by the server only.
 
-- The game is set to R15 only, with body scale limited to standard proportions in Avatar settings. Gameplay always uses the **fixed skeleton**, so physics and leaderboards are identical for everyone.
-- Each avatar rig gets an anchored `HumanoidRootPart` CFramed from the simulation. Joints are posed by writing `Motor6D.Transform` in `PreSimulation`, with no animation tracks playing and the default Animate script removed. Layered clothing, dynamic heads and accessories follow the joints. This must be verified in the Phase 3 spike.
-- Hands are placed on the bar with 2-bone arm IK so small proportion differences don't show.
-- There will be a "stickman mode" option: the clean silhouette reads best in clips and costs almost nothing to render.
-- Performance: 20 posed avatars on low-end phones must be measured. Distant players update at a lower rate.
-
----
-
-## 8. Exploit resistance plan (post-prototype)
-
-- **Path A:**
-  - The server checks every snapshot: speed against an energy bound (`v² ≤ v_max_release² + 2·g·Δh` plus margin), map bounds, "caught bar X" only when X exists near the reported position, and state transitions in a legal order.
-  - Violations invalidate scores. We don't auto-kick on a single anomaly.
-  - Leaderboard runs upload their compact input log, and the server re-simulates within tolerance.
-- **Path B:** authority is built in, and the same checks become assertions.
-- **Economy:** anything worth Robux, currency or rank is decided by the server, never by the client.
-
-## 9. Replays and clips (post-prototype)
-
-- A ring buffer of render poses at 30 Hz holds about 15 s, well under 100 KB.
-- Playback drives the same renderer, so slow motion and free cameras come from interpolation. This works regardless of determinism.
-- Input-log replays are optional and used for leaderboard verification.
-
----
-
-## 10. Performance budgets (reference low-end phone, 1× speed)
+## 10. Performance budgets (reference low-end phone, 1×)
 
 | Item | Budget |
 |---|---|
-| Core simulation (≈4–8 steps/frame) | ≤ 0.3 ms/frame |
-| Prototype rig render (≈15 parts via BulkMoveTo) | ≤ 0.2 ms/frame |
+| Core simulation (≈4–8 steps/frame, 5 bodies, ≤ 8 contacts) | ≤ 1.0 ms/frame |
+| Prototype rig render (≈15 parts, BulkMoveTo) | ≤ 0.2 ms/frame |
 | Debug overlay (when shown) | ≤ 0.3 ms/frame |
-| Frame rate | 60 fps on mid-range phones; never below 30 fps on low-end |
+| Frame rate | 60 fps on mid phones; never below 30 fps on low-end |
 
-Measured with `debug.profilebegin` markers + MicroProfiler on real devices (see TESTING.md).
-
----
+Measured with `debug.profilebegin` markers + MicroProfiler on real devices. If the solver exceeds its budget, the levers are, in order:
+1. `solverIterations`
+2. `simHz` 240 → 120 with 2 sub-steps
+3. broad-phase culling of the world slice
 
 ## 11. Technical risks and mitigations
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| The reduced model looks stiff or robotic compared with a floppy ragdoll | Clips look less alive | Tune shape springs for overshoot. Add a render-only secondary-motion layer (limbs lag under g-force) that never affects gameplay. |
-| Touch latency and 30 fps input quantization make windows feel unfair on weak phones | Catches feel random | Windows are sized in time (≥ 2 frames at 30 fps), plus a swept proximity test, late-grab rollback grace and per-device testing |
-| Release precision at low fps (one 30 fps frame ≈ 9° of swing at high speed) | Trajectories vary on weak devices | Accept (the original has the same limit); measure; optional release-direction smoothing only if tests demand it |
-| Tunable momentum transfer or release boost > 1 creates infinite energy loops | Broken regrab chains, exploits | Energy cap (`maxSwingSpeed`) and panel warnings for values > 1 |
-| Server Authority corrections reverse a catch | Worst possible feel | Tolerance-based catch confirmation; measured in the Phase 3 spike before adopting Path B |
-| Avatar posing edge cases (layered clothing, Rthro) | Visual glitches | Standardized R15 scaling, spike in Phase 3, stickman fallback |
-| Lune/Roblox vector-type differences | Tests diverge from game | The core uses plain numbers and a small shared math module; the same code runs in both |
-| StreamingEnabled (if Path B) hides bars | Missed catches | Persistent bar streaming; the registry handles bars streaming in and out |
+| 2D solver jitter or joint stretch at giant-swing speeds | Mushy or unstable swings | Soft-step solver with warm starting, 240 Hz, joint drift and energy tests (A2, A17), iteration and Hz knobs |
+| Compliance tuning: too floppy vs too stiff | Poor control or a robotic look | Per-joint max torque and frequency; reference comparison (TESTING §3) |
+| Touch latency and 30 fps input quantization | Catches feel random | Time windows ≥ 2 frames at 30 fps, swept test, rollback grace, per-device tests |
+| Low-fps release precision (one 30 fps frame ≈ 9° of swing) | Variable trajectories on weak phones | Accept (the reference has the same limit); measure |
+| Momentum transfer or release boost > 1 | Infinite energy loops | `maxSwingSpeed` cap, panel warnings |
+| Server Authority reversing catches | Worst possible feel | Tolerant server confirmation; Phase 3 spike before adopting it |
+| World slice can't represent some map geometry | Missing collisions | Primitive-only gameplay geometry; proxies for meshes; slice debug drawing |
+| Planar constraint vs Roblox players' 3D expectations | Product fit | Lane-based maps (GAME_PLAN §7); decided before map production |
+| Per-player slow-mo vs shared moving equipment | Inconsistent multiplayer | §7 options; slow-mo in solo/private and replays for launch |
+| Avatar posing edge cases | Visual glitches | Standard R15 scaling, Phase 3 spike, stickman fallback |
+| Lune vs Roblox behavior differences | Tests diverge | The core uses plain numbers and its own 2D math; no engine types inside `step` |
 
 ## 12. References
 
-- Roblox Server Authority: <https://create.roblox.com/docs/projects/server-authority> and the Techniques page next to it
-- Live API dump used for verification: `MaximumADHD/Roblox-Client-Tracker` (`API-Dump.txt`), September 2026
+- Roblox Server Authority: <https://create.roblox.com/docs/projects/server-authority> (and the Techniques page)
+- Live API dump used for verification: `MaximumADHD/Roblox-Client-Tracker` `API-Dump.txt` (September 2026)
+- Reference clip analysis: [REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md)
