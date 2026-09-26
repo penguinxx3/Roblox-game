@@ -1,0 +1,8 @@
+# Pinned toolchain (the versions P1.1 was built and tested with).
+# Install with `rokit install` (https://github.com/rojo-rbx/rokit), or from crates.io:
+#   cargo install rojo lune selene --locked && cargo install stylua --locked --features luau
+[tools]
+rojo = "rojo-rbx/rojo@7.7.0"
+lune = "lune-org/lune@0.10.5"
+stylua = "JohnnyMorganz/StyLua@2.5.2"
+selene = "Kampfkarren/selene@0.31.0"

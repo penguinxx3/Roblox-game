@@ -19,6 +19,43 @@ There are five layers, from cheapest to most important. The **prototype exit gat
 | Satisfying | Regrabs are rated rewarding; players chain them |
 | Consistent | Same inputs give the same result on a 30 fps phone and a 240 Hz PC |
 
+## P1.1 status — what exists and how to run it
+
+**Four test layers are implemented.** Run all of them before every push:
+
+| Layer | Command | What it proves |
+|---|---|---|
+| 1. Headless unit/integration tests | `lune run tests/run.luau` (`--quick` skips slow tests; a name filter is optional) | Physics math: solver, contacts, joints, rig, driver, scenarios |
+| 2. Built-place self-test | `rojo build -o build/BarGym.rbxl && lune run tools/place_selftest.luau` | The shipped `.rbxl` compiles, and its specs pass through Roblox-style instance `require` (not the Lune path) |
+| 3. Headless client harness | `lune run tools/client_harness.luau` | The shipped client runs with engine shims: 5,000+ frames across all scenes and every debug control; checks rendered part positions, overlay effects, live tuning and clamping. Instances and properties are checked against Roblox's API reflection. |
+| Static analysis | `rojo sourcemap default.project.json -o sourcemap.json --include-non-scripts` then `luau-lsp analyze --platform roblox --sourcemap sourcemap.json --definitions=@roblox=<globalTypes.d.luau> src` | Strict Luau type-check of all code against the Roblox API definitions: **0 errors** at P1.1 |
+| 4. In-Studio self-test | Press Play in Studio (server runs the quick suite automatically) | The same specs run inside the real Roblox engine; results go to Output and to attributes on `ReplicatedStorage.GymTests` (see STUDIO_VALIDATION.md) |
+
+Layers 1–3 and static analysis run in the cloud environment. The headless runner first mirrors `src/shared` into `build/lune/`, rewriting only `require(script.Parent.X)` into file requires (`tools/lune_mirror.luau`), so the same code runs in both environments. **Layer 4 and everything visual or on-device need Studio** and are listed as unvalidated until run (STUDIO_VALIDATION.md).
+
+**P1.1 automated tests (40), mapped to the plan:**
+
+| Plan id | Implemented as (spec :: test) | P1.1 result |
+|---|---|---|
+| gravity | Solver :: gravity matches integrator / parabola | exact to 1e-9; parabola error 0.036 studs @ 2 s (integrator bound) |
+| A1 | Sim :: stability soak (16 runs × 60 s, random poses and violent shoves, moon × 4 solver rates) | no invalid states; default settings: joint ≤ 0.024, limits ≤ 5.5°, penetration ≤ 0.08 |
+| A2 | Solver :: pendulum energy 60 s; Sim :: Hang energy never increases | drift ≤ 0.25%; max gain 0.026% (noise), losses only |
+| A3 | Rig :: centre of mass on ballistic path; Rig :: tuck conserves angular momentum | ≤ 1e-12 studs; L drift 0.003% |
+| A5 (early) | Rig :: tuck spins faster | ratio 1.67 (reference ≈ 1.6) |
+| A6 | Sim :: frame-rate independence (30/60/144/240 fps + jitter) | bit-identical state at step 600 |
+| A7 | Sim :: slow motion identical steps, 4× real time | identical; ratio 4.00 |
+| A8 | Sim :: determinism | bit-identical |
+| A17 | Sim :: joints hold at giant-swing speed; Solver :: pin at 30 rad/s | joint 0.009, grip 0.007; pin 0.003 |
+| A18 | Contacts :: circle rests; capsule lies flat (2-point manifold) | rest speed 0; penetration 0.001 |
+| A19 | Solver :: motor max torque limits strength | strong 2.7° droop, weak gives way (108°) |
+| A20 (early) | Solver :: kinematic body carries pin; Sim :: Wheel grip through a revolution | pin 0.0002; grip 0.004 |
+| — | Contacts :: no tunneling at 300 studs/s; friction μg; restitution e²; corner; slope; collision routine | all pass |
+| — | Rig :: builds straight; motors reach and settle every pose; limp limits; moon torque scaling | settle 1.6–2.7 s |
+| — | Sim :: reset exactness; step cap / pause / NaN dt; invalid-state recovery; tuning clamps; 4 scenario runs; Drop lands and rests | all pass |
+| A16 | Sim :: throughput | ~18 µs/step (Hang), ~28 µs/step (Tumble) in Lune |
+
+A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need the input and catch systems (P1.2–P1.4).
+
 ## 2. Layer A — automated core tests (Lune, headless)
 
 The core is pure Luau and runs outside Roblox on every change. These tests become CI later.

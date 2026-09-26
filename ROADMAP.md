@@ -2,29 +2,30 @@
 
 Rule: **no phase starts until the previous phase's exit criteria are met.** Features are cheap to add later; bad movement is expensive to fix later.
 
-## Phase 0 — Architecture and design ← *current*
+## Phase 0 — Architecture and design ✅
 
 - [x] Physics approach comparison and recommendation ([TECHNICAL_DESIGN.md](TECHNICAL_DESIGN.md))
 - [x] Core physics and catch-system spec with tuning parameters ([PHYSICS_DESIGN.md](PHYSICS_DESIGN.md))
 - [x] Controls, prototype scope, design concerns ([GAME_PLAN.md](GAME_PLAN.md))
 - [x] Movement quality test plan and exit gate ([TESTING.md](TESTING.md))
 - [x] Reference clip analysis, and the resulting v2 design revision ([REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md))
-- [ ] **Your approval of the v2 architecture**, and answers to GAME_PLAN §10
+- [x] **Approval of the v2 architecture** (2026-09-26)
 
-**Exit:** explicit approval. No implementation before it.
+**Exit:** explicit approval. ✅
 
-## Phase 1 — Minimal physics prototype
+## Phase 1 — Minimal physics prototype ← *current*
 
 Scope is exactly GAME_PLAN §8: one stickman, one bar, controls, camera, reset and the debug tools.
 
-| Milestone | Contents | What you get |
+*Renumbered at approval:* the approved P1.1 "physics foundation" merges the planned toolchain and solver-core milestones.
+
+| Milestone | Contents | Status / what you get |
 |---|---|---|
-| **P1.1 Toolchain** | Rojo project, pinned tools, Lune test runner, `Tuning.luau`, lint/format, place builds, trace-to-image script | — |
-| **P1.2 Solver core** | `Solver2D` + `Collide2D`: bodies, revolute joints with limits and spring motors, contacts with friction against the floor, warm start/relax; the 5-body rig; tests A1–A3, A8, A17–A19 | Trace images of a passive hang and a floor drop |
-| **P1.3 First playable** | Grip joint on one bar; shape control (Arch/Tuck/Pike) and pumping (A4); stickman renderer with interpolation; side camera; touch Layout A, keyboard and gamepad; debug panel and overlay | **Build 1** (`.rbxl`): *"Pump to a giant. Does it respond instantly? Do the limbs feel alive?"* |
-| **P1.4 Flight** | Let Go, flight, twist (both modes, target projection), fall onto the floor and auto-reset; tests A5–A7; R1–R3 measurable | — |
-| **P1.5 Intentional grab** | Attempts, early and late windows, rollback grace, cooldown, reach and twist gates, swept test, momentum continuity, catch blend, feedback, session log, Layout B, *(proposed)* debug instant replay; tests A9–A15, A20 (with a test-only kinematic target) | **Build 2**: *"Release and regrab. Fair? Satisfying? Does it feel like the reference?"* |
-| **P1.6 Tuning rounds** | Playtests (TESTING §6), reference comparison (TESTING §3), preset iterations; max 3 rounds before a diagnosis checkpoint | A new build each round |
+| **P1.1 Physics foundation** | Toolchain; pure 2D core (`Solver2D`, `Collide2D`, `Rig`, `Sim`, `Tuning`, `Scenarios`); fixed step + time scale + interpolation; contacts; springy torque-limited joints; kinematic moving anchors; reset and recovery; live tuning; debug overlay and controls; 4 test layers (40 headless tests, built-place self-test, client harness, in-Studio self-test) | **Built and tested headlessly.** Studio run and human look/feel pending (STUDIO_VALIDATION.md). Deliverable: `BarGym.rbxl` with the Hang / Drop / Tumble / Wheel test scenes. |
+| **P1.2 First playable** | Grip on the bar from gameplay; input router (touch-down buttons Layout A, keyboard, gamepad) → Arch/Tuck/Pike shape control with close/open speeds; pumping (A4); debug tuning panel generated from `Tuning`; presets | Build 1: *"Pump to a giant. Does it respond instantly? Do the limbs feel alive?"* |
+| **P1.3 Flight** | Let Go, flight, twist (both modes, target projection), fall onto the floor and auto-reset; R1–R3 measurable | — |
+| **P1.4 Intentional grab** | Attempts, early and late windows, rollback grace, cooldown, reach and twist gates, swept test, momentum continuity, catch blend, feedback, session log, Layout B, debug instant replay; A9–A15 | Build 2: *"Release and regrab. Fair? Satisfying? Like the reference?"* |
+| **P1.5 Tuning rounds** | Playtests (TESTING §6), reference comparison (TESTING §3), preset iterations; max 3 rounds before a diagnosis checkpoint | A new build each round |
 
 **Exit:** the TESTING §7 gate is met. If not after 3 rounds, follow the diagnosis path (which may include the native-physics fallback spike).
 
@@ -98,3 +99,5 @@ Scope is exactly GAME_PLAN §8: one stickman, one bar, controls, camera, reset a
 | 2026-09-26 | Networking path decided by a Phase 3 spike; the core stays compatible with both | TECHNICAL_DESIGN §7 |
 | 2026-09-26 | **v2 after reference study:** planar (2.5D) core; 2D rigid-body solver with compliant motors and contacts replaces the reduced-coordinate model; foot segment added; native crash hand-off removed; smaller catch radius with timing-based forgiveness; no hitstop or shake by default | REFERENCE_ANALYSIS §5, PHYSICS_DESIGN v2 |
 | 2026-09-26 | Proposed (pending approval): lane-based 2.5D world; slow-mo live in solo/private servers plus a replay tool; reactive equipment per-player | GAME_PLAN §7, TECHNICAL_DESIGN §7 |
+| 2026-09-26 | Architecture approved; P1.1 = physics foundation (milestones renumbered) | This file |
+| 2026-09-26 | P1.1 as built: arms split into upper arm + forearm with a strong near-straight elbow motor (6 bodies); solver defaults 240 Hz × 4 substeps, jointHertz 240 with a stiffness cap at ¼ substep rate; velocity-expanded speculative contacts | PHYSICS_DESIGN §2, §4 |

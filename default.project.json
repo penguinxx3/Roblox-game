@@ -1,0 +1,36 @@
+{
+  "name": "BarGym",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Gym": {
+        "$path": "src/shared/Gym"
+      },
+      "GymTests": {
+        "$path": "src/shared/GymTests"
+      }
+    },
+    "ServerScriptService": {
+      "GymServer": {
+        "$path": "src/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "GymClient": {
+          "$path": "src/client"
+        }
+      }
+    },
+    "Players": {
+      "$properties": {
+        "CharacterAutoLoads": false
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "ClockTime": 14.5
+      }
+    }
+  }
+}

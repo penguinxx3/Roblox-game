@@ -1,6 +1,6 @@
 # Physics Design — Gymnast Core (v2)
 
-Status: **Proposed — awaiting approval.** This is the spec the prototype will implement.
+Status: **approved; P1.1 (physics foundation) implemented.** Sections 1, 2, 4, 9, 10 and the P1.1 tuning tables in §12 describe the code as built (`src/shared/Gym/`). The other sections are specs for later milestones.
 
 **v2 changes** after studying the reference clips ([REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md)):
 - Motion is **planar (2.5D)**.
@@ -23,36 +23,43 @@ Design principles:
 
 ## 1. Units and conventions
 
-- Studs, seconds. Degrees in the panel and radians internally. Total body mass = 1.
-- **Motion plane:** a vertical plane with horizontal axis `u`, up axis `v` and normal `n`. The prototype plane is world Z (u) / world Y (v), so the camera looks along world X. All dynamics are 2D in (u, v); rotation angles are about `n`.
+- Studs, seconds. Degrees in the panel and radians internally. Total body mass = `bodyMass` (10 by default; only ratios matter).
+- **Motion plane:** a vertical plane with horizontal axis `u`, up axis `v` and normal `n`. As built, u = world X, v = world Y and depth = world Z, so the camera looks along −Z. All dynamics are 2D in (u, v); rotation angles are about `n`.
 - `gravity` = 35 studs/s² by default (Earth-scale for this body). A check against the reference: a 0.9 s pole-to-pole flight needs a release speed of about 16 studs/s ≈ 4.4 m/s, which is a realistic gymnast release speed.
 
-## 2. Body model (5 rigid bodies, planar)
+## 2. Body model (6 rigid bodies, planar) — implemented in `Rig.luau`
 
 Left and right limbs are always paired, as in the reference, so each pair is one 2D body. Rendering draws two limbs with a sideways offset.
 
+*Change at implementation (per the P1.1 direction):* arms are **upper arm + forearm with an elbow**. The elbow motor is strong and targets nearly straight, so arms look straight like the reference but give a little under load.
+
 | Body | 2D collider | Length (studs) | Mass fraction | Notes |
 |---|---|---|---|---|
-| Torso + head | box 2.0 × 0.9, plus circle r 0.5 for the head | 2.0 (shoulder → hip) | 0.51 | Rigid; there's no spine bend in the reference |
-| Arms (pair) | capsule r 0.2 | 2.0 (shoulder → grip) | 0.10 | Always straight (no elbows in v2) |
-| Thighs (pair) | capsule r 0.26 | 1.1 | 0.28 | |
-| Shanks (pair) | capsule r 0.2 | 1.1 | 0.09 | |
-| Feet (pair) | capsule r 0.12, length 0.7 | 0.7 | 0.02 | Needed for standing and landing (Phase 2); in the prototype they add realistic dangling |
+| Torso + head | capsule r 0.42 (trunk) + circle r 0.45 (head, 0.7 above the shoulder line) | 2.0 (hip → shoulder) | 0.43 + 0.08 | Rigid; no spine bend (as in the reference) |
+| Upper arms (pair) | capsule r 0.17 | 1.0 (shoulder → elbow) | 0.055 | |
+| Forearms (pair) | capsule r 0.15 | 1.0 (elbow → grip point) | 0.045 | Hand friction uses `handFriction` |
+| Thighs (pair) | capsule r 0.23 | 1.1 | 0.28 | |
+| Shanks (pair) | capsule r 0.18 | 1.1 | 0.09 | |
+| Feet (pair) | capsule r 0.12 | 0.7 (ankle → toe) | 0.02 | Standing and landing (Phase 2); dangling in the air |
 
-Grip to sole is about 6.4 studs. Inertias come from uniform box/capsule shapes.
+Grip to sole is about 6.3 studs. Inertias come from uniform rods with radius, plus the head as a disc offset by the parallel-axis rule.
 
-**Joints** are revolute (2D pins) with limits and a **spring motor** toward a target angle. All angles are 0 for a straight body; positive means flexion toward the front.
+**Joints** are revolute (2D pins) with limits and a **spring motor** toward a target angle. All anatomical angles are 0 for a straight body with arms overhead; positive means flexion toward the front.
 
 | Joint | Limits | Meaning of + |
 |---|---|---|
-| Shoulder (torso–arms) | −45° … +180° | arms toward the chest (0 = overhead, 90 = forward, 180 = down by the sides) |
+| Shoulder (torso–upper arms) | −45° … +180° | arms toward the chest (0 = overhead, 90 = forward, 180 = down by the sides) |
+| Elbow (upper arms–forearms) | −5° … +150° | forearm bends toward the front |
 | Hip (torso–thighs) | −40° … +150° | flexion (pike/tuck) |
 | Knee (thighs–shanks) | −2° … +150° | flexion |
-| Ankle (shanks–feet) | 70° … 110° | foot angle (motor target 90°) |
+| Ankle (shanks–feet) | 60° … 120° | foot angle (90 = square) |
 
-**Motor model:** a soft constraint driving `θ → θ*` with natural frequency `f` (Hz), damping ratio `ζ` and a **maximum torque** `τmax`.
-- It's implicit (stable at any stiffness) and has limited strength. External loads, like the centrifugal pull at the bottom of a giant or a hard landing, can therefore bend the joint. That is the "alive but controlled" limb behavior seen in the reference.
-- `τmax` is expressed in units of `M·g·L_body` so it scales with gravity settings.
+The solver works in relative body angles; each joint maps anatomical ↔ relative with `anatomical = sign·(θB − θA) + offset`, defined in `Rig.luau`.
+
+**Motor model (as built):** a soft angular constraint `θ → θ*` with frequency `motorHertz`, damping `motorDampingRatio` and a **per-joint maximum torque**.
+- It's implicit (stable at any stiffness) and strength-limited, so loads (centrifugal pull, landings) bend joints: the "alive but controlled" behavior.
+- Torque unit is **Mg·stud**: total body mass × current gravity × 1 stud, so strength scales with moon gravity.
+- A saturated motor exerts its maximum torque and no extra damping, so an overloaded limb swings around its equilibrium instead of settling. That's physically plausible; worth watching in feel tests.
 
 ## 3. Shape control (Arch / Tuck / Pike)
 
@@ -60,44 +67,66 @@ Grip to sole is about 6.4 studs. Inertias come from uniform box/capsule shapes.
 - `target = Neutral + t·(Tuck − Neutral) + a·(Arch − Neutral) + p·(Pike − Neutral)`
 - The motor frequency switches between `shapeFreqClose` when moving toward flexion (tucking) and `shapeFreqOpen` when opening (kick-out).
 
-| Pose | Shoulder | Hip | Knee | Ankle |
-|---|---|---|---|---|
-| Neutral (air/bar: arms overhead, slight hollow) | +8° | +8° | +5° | 90° |
-| Arch | −25° | −30° | 0° | 100° |
-| Tuck | +25° | +125° | +135° | 90° |
-| Pike | +15° | +115° | 0° | 100° |
+| Pose | Shoulder | Elbow | Hip | Knee | Ankle |
+|---|---|---|---|---|---|
+| Neutral (air/bar: arms overhead, slight hollow) | +8° | +5° | +8° | +5° | 90° |
+| Arch | −25° | 0° | −30° | 0° | 100° |
+| Tuck | +25° | +20° | +125° | +135° | 90° |
+| Pike | +15° | +5° | +115° | 0° | 100° |
+| Crouch *(P1.1 debug/landing test)* | +90° | +10° | +70° | +90° | 70° |
+| Limp *(P1.1 debug)* | motors off | | | | |
 
-All pose angles are tuning parameters. The reference's standing "ready" pose (crouch, arms forward) belongs to Phase 2 ground movement.
+P1.1 status:
+- The pose tables live in `Rig.POSES`; the debug controls switch poses to exercise the motors. There's no gameplay input yet.
+- Input-driven Arch/Tuck/Pike blending and the separate close/open frequencies are P1.2.
+- Measured in zero gravity from a straight start: every joint settles within 3° of its target in 1.6–2.7 s. The coupled springs wobble noticeably first (Pike: shoulder overshoots to ~59° before settling at 15°). Damping and frequency are tuning items for P1.2 feel work.
 
-## 4. Solver
+## 4. Solver — implemented in `Solver2D.luau` + `Collide2D.luau`
 
-A small **2D rigid-body solver** written for this game: soft-step sequential impulses with warm starting, in the style of Box2D v3. The dynamics of every state (hanging, flying, touching the world) are the **same equations**. Nothing switches between separate models, so momentum is continuous through release, catch and contact by construction.
+A small **2D rigid-body solver** written for this game: soft-step sequential impulses with warm starting, in the style of Box2D v3. The dynamics of every state (hanging, flying, touching the world) are the **same equations**; nothing switches between separate models, so momentum is continuous through release, catch and contact by construction.
 
-**Per fixed step** (`dt = 1/simHz`, default 240 Hz):
-1. Integrate velocities: gravity, then `linearDamping` and `angularDamping`.
-2. Update the motor targets from input and twist projection (§6.3).
-3. Warm-start, then run `solverIterations` passes over:
-   - joints: pin, limits, motors
-   - the **grip** pin (§7)
-   - contacts, with friction
-4. Integrate positions, then run the relax pass (removes the bias velocity) and apply restitution.
-5. Narrow-phase contact generation for the next step:
-   - 2D colliders against the **world slice**: tagged map parts cut by the motion plane into polygons, circles and capsules (TECHNICAL_DESIGN §5)
-   - against equipment bodies
-   - there's no self-collision; joint limits keep limbs plausible.
+**Per fixed step** (`dt = 1/simHz`, default 240 Hz), as built:
+1. **Collide once per step.**
+   - Rounded segments (capsules/circles) on the body against convex polygons on static or kinematic bodies.
+   - Up to 2 points per pair (face clipping), with feature ids for warm starting.
+   - The **speculative margin is `speculativeDistance` + the distance both shapes can travel this step** (linear speed plus spin × extent). Fast bodies therefore can't tunnel: 300 studs/s into the floor stops at the surface.
+2. **Prepare** contact masses and restitution velocities, and joint masses and motor softness.
+3. **Substeps** (`substeps`, default **4**, so the solver runs at 960 Hz):
+   - integrate velocities (gravity, damping, speed clamps)
+   - warm-start joints and contacts
+   - solve **with** position bias: per joint, spring motor → lower/upper limits → point constraint; then contacts with friction
+   - integrate positions
+   - `relaxIterations` passes **without** bias (removes correction velocity)
+4. **Restitution** pass (only above `restitutionThreshold`). Impulses are kept for the next step's warm start.
+
+**Stability rule (as built):** soft constraint stiffness is capped at a quarter of the substep rate (h·ω ≤ π/2), the same rule Box2D v3 uses. Settings above that are clamped instead of going unstable. The defaults sit exactly at the cap: `jointHertz = 240` with 4 × 240 Hz substeps.
+
+**Measured (headless, default settings):**
+
+| Measurement | Result |
+|---|---|
+| Joint stretch, giant swing (~9 rad/s) | ≤ 0.009 studs |
+| Joint stretch, landings | ≤ 0.022 studs |
+| Grip stretch | ≤ 0.007 studs |
+| Pendulum energy drift over 60 s | ≤ 0.25%, always a loss, never a gain |
+| Flight angular momentum drift | ≤ 0.003% |
+| Centre of mass vs the integrator's own free-fall path | ≤ 1e-12 studs |
+| Cost (Lune) | ~18–28 µs per step, i.e. ~0.1 ms per 60 fps frame |
+
+(`tools/solver_bench.luau` reproduces the settings comparison.)
 
 **Why this solver:**
 - Robust contact and friction.
 - Soft constraints make motors stable and compliant.
 - Warm starting gives smooth resting contacts.
-- A proven structure for ragdolls.
-- **Conservation:** internal joint impulses are equal and opposite, so linear and angular momentum are conserved in free flight except for small position-correction effects. Tests bound this (TESTING A3).
+- Proven structure for ragdolls.
+- Internal joint impulses are equal and opposite, so momentum is conserved in free flight.
 
 **Alternatives considered:**
 - XPBD: simpler, but friction, restitution and motor semantics are less direct.
 - The v1 reduced-coordinate model: exact, but can't handle multi-contact landings, handstands, vaults or reactive equipment without many special cases.
 
-**Cost:** 5 bodies, 4 joints plus 1 grip, and at most about 8 contacts. That's roughly 1 M simple operations per second at 240 Hz, including narrow-phase. The budget is ≤ 1.0 ms/frame on the low-end reference phone, measured (see TECHNICAL_DESIGN §10).
+**Not in P1.1:** world slice built from Roblox map parts. The P1.1 course is defined as data in `Scenarios.luau` and rendered from the solver's own shapes. The grip used by the test scenes is a plain pin joint; the intentional catch system is P1.4.
 
 ## 5. Derived states (game logic only; the solver doesn't care)
 
@@ -271,7 +300,7 @@ The reference never shows one-hand catches; hands always grip together. This sta
 
 ## 11. Known simplifications (on purpose)
 
-1. Paired limbs, straight arms, no elbows, no spine bend (all as in the reference).
+1. Paired limbs, no spine bend (as in the reference). Elbows exist but the elbow motor holds the arms nearly straight.
 2. Planar dynamics. Twist is a controlled render and target-projection layer, not emergent 3D rotation.
 3. No self-collision.
 4. Prototype has no standing or balance logic: landing is physical, then auto-reset. Standing, jumping and hand-plants are Phase 2, built on the same solver.
@@ -281,39 +310,61 @@ The reference never shows one-hand catches; hands always grip together. This sta
 
 Defined in `Tuning.luau` (default, min, max, unit, category, description). The debug panel is generated from it; presets are saved in `tuning/presets/`. **All defaults are starting points**, calibrated against REFERENCE_ANALYSIS §4 during tuning. ⟲ means the value takes effect on Reset.
 
-### World, time, solver
+### P1.1 parameters (implemented in `Tuning.luau`, live-editable)
+
+In Studio during Play, these are editable as attributes on `ReplicatedStorage.GymTuning` (client view).
+
+**World and time**
+
+| Param | Default | Range | Unit | Notes |
+|---|---|---|---|---|
+| `gravity` | 35 | 5–150 | studs/s² | |
+| `moonGravity` / `moonGravityScale` | 0 / 0.165 | 0–1 / 0.05–1 | bool / × | |
+| `timeScale` | 1 | 0–2 | × | Slow-mo; debug presets 1 / 0.5 / 0.25 / 0.1 |
+| `linearDamping` / `angularDamping` | 0 / 0.02 | 0–2 | 1/s | |
+
+**Solver**
+
+| Param | Default | Range | Unit | Notes |
+|---|---|---|---|---|
+| `simHz` ⟲ | 240 | 60–480 | Hz | Fixed step (collision/input/events rate) |
+| `substeps` | 4 | 1–8 | count | Solver substeps per step |
+| `relaxIterations` | 1 | 1–4 | count | |
+| `maxStepsPerFrame` / `maxFrameDt` | 16 / 0.1 | 1–64 / 0.02–0.5 | steps / s | Hitch protection |
+| `maxLinearSpeed` / `maxAngularSpeed` | 400 / 120 | — | studs/s / rad/s | Safety clamps |
+
+**Contacts**
+
+| Param | Default | Range | Unit | Notes |
+|---|---|---|---|---|
+| `contactHertz` / `contactDampingRatio` | 30 / 10 | 5–120 / 0–20 | Hz / ζ | Overlap push-out softness |
+| `contactPushSpeed` | 10 | 0.5–50 | studs/s | Max push-out speed |
+| `speculativeDistance` | 0.12 | 0–1 | studs | Plus per-step motion (anti-tunneling) |
+| `friction` / `handFriction` | 0.8 / 1.0 | 0–2 | μ | |
+| `restitution` / `restitutionThreshold` | 0.05 / 3 | 0–0.9 / 0–20 | e / studs/s | |
+
+**Joints**
+
+| Param | Default | Range | Unit | Notes |
+|---|---|---|---|---|
+| `jointHertz` / `jointDampingRatio` | 240 / 2 | 5–480 / 0–10 | Hz / ζ | Joint anchor stiffness (capped at ¼ substep rate) |
+| `motorHertz` / `motorDampingRatio` | 6 / 0.8 | 0.5–30 / 0–3 | Hz / ζ | Pose springs |
+| `shoulderMaxTorque` / `elbowMaxTorque` / `hipMaxTorque` / `kneeMaxTorque` / `ankleMaxTorque` | 3.0 / 2.0 / 2.0 / 1.0 / 0.3 | 0–20 | Mg·stud | Lower = floppier |
+
+**Body ⟲**
+
 | Param | Default | Range | Unit |
 |---|---|---|---|
-| `gravity` | 35 | 10–120 | studs/s² |
-| `moonGravityScale` | 0.165 | 0.05–1 | × |
-| `timeScale` | 1.0 | 0.05–2 (presets 1 / 0.5 / 0.25) | × |
-| `simHz` ⟲ | 240 | 120 / 240 / 480 | Hz |
-| `maxStepsPerFrame` | 16 | 4–64 | steps |
-| `solverIterations` | 4 | 1–12 | — |
-| `contactHertz` / `jointHertz` | 30 / 60 | 5–120 | Hz |
-| `linearDamping` / `angularDamping` | 0 / 0.02 | 0–1 | 1/s |
+| `bodyMass` | 10 | 1–100 | mass |
+| `upperArmLength` / `forearmLength` | 1.0 / 1.0 | 0.5–1.5 | studs |
+| `trunkLength` | 2.0 | 1.5–2.5 | studs |
+| `thighLength` / `shankLength` / `footLength` | 1.1 / 1.1 / 0.7 | 0.4–1.6 | studs |
 
-### Body ⟲
-| Param | Default | Range |
-|---|---|---|
-| `armLength` / `trunkLength` | 2.0 / 2.0 | 1.5–2.5 studs |
-| `thighLength` / `shankLength` / `footLength` | 1.1 / 1.1 / 0.7 | 0.5–1.6 studs |
+Mass fractions and radii are constants in `Rig.luau`.
 
-Mass fractions are constants in `Body.luau`.
+### Later milestones (specified, not yet in `Tuning.luau`)
 
-### Motors and shapes
-| Param | Default | Range | Notes |
-|---|---|---|---|
-| Pose angles (§3 table) | see §3 | joint limits | Per joint, per pose |
-| `shapeFreqClose` / `shapeFreqOpen` | 6 / 7 | 1–20 Hz | Tuck speed / kick-out speed |
-| `motorDamping` | 0.8 | 0.2–1.5 ζ | < 1 gives lively overshoot |
-| `shoulderMaxTorque` / `hipMaxTorque` / `kneeMaxTorque` / `ankleMaxTorque` | 1.5 / 2.0 / 1.2 / 0.4 | 0.1–6 × M·g·L | Lower = floppier under load |
-
-### Contacts
-| Param | Default | Range |
-|---|---|---|
-| `friction` / `handFriction` | 0.8 / 1.0 | 0–2 |
-| `restitution` | 0.05 | 0–0.5 |
+`shapeFreqClose` / `shapeFreqOpen` (P1.2, input-driven shape control) and everything below are added when their milestone is built.
 
 ### Swing
 | Param | Default | Range | Unit |

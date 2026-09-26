@@ -1,6 +1,6 @@
 # Technical Design (v2)
 
-Status: **Proposed — awaiting approval.** Nothing in here is implemented yet.
+Status: **Approved.** P1.1 (physics foundation) is implemented; §6 lists what exists.
 
 v2 incorporates the reference-clip study ([REFERENCE_ANALYSIS.md](REFERENCE_ANALYSIS.md)). The main changes from v1:
 - The custom core becomes a **planar (2.5D) rigid-body solver with compliant joint motors and real contacts** instead of a reduced-coordinate model with scripted states.
@@ -165,49 +165,73 @@ Key rules:
 
 ## 6. Prototype code architecture
 
+**As built in P1.1 (physics foundation):**
+
 ```
-default.project.json            Rojo mapping. Players.CharacterAutoLoads = false; test world (floor + 1 bar)
-rokit.toml                      Pinned toolchain: rojo, lune, stylua, selene
-selene.toml, stylua.toml
-src/shared/Gym/
-  Tuning.luau                   Every parameter: default/min/max/unit/category/description
-  Types.luau                    State, InputFrame, Event types
-  Math2D.luau                   2D vector and rotation helpers (plain numbers)
-  Body.luau                     Rig definition: 5 bodies, colliders, masses, joints, limits, pose tables
-  Solver2D.luau                 Bodies, revolute joints + limits + spring motors, grip joint, contacts,
-                                friction, warm start, relax, restitution
-  Collide2D.luau                Narrow phase: capsule/circle/box vs polygon/circle/capsule
-  WorldSlice.luau               Plane definition; world parts → 2D shapes (pure given part data)
-  Equipment.luau                Grip targets (points/segments); static / kinematic(t) / dynamic bodies
-  Shape.luau                    Input → pose targets (arch/tuck/pike), close/open frequencies
-  Twist.luau                    ψ control, target projection
-  Catch.luau                    Attempts, windows, swept proximity, rollback grace, transfer, quality
-  Sim.luau                      Fixed-step driver API, derived states, history ring buffer, events
-src/client/
-  init.client.luau              Bootstrap, render-step binding, disables default controls and camera
-  Input/InputRouter.luau        Touch/keyboard/gamepad → InputFrame; edge queue
-  Input/TouchControls.luau      Press on touch-down, multi-touch, slide-between, hit padding, layouts A/B,
-                                opacity 0 = hidden but active
-  Render/RigRenderer.luau       Stickman rig (anchored parts) from 2D state + twist; interpolation; catch blend
-  Render/CameraController.luau  Side view, smooth follow, look-ahead
-  Render/Feedback.luau          Catch sound, haptics
-  Debug/DebugPanel.luau         Generated from Tuning: sliders, numeric entry, presets, import/export
-  Debug/DebugOverlay.luau       Timing, state, joint saturation, spin rate, catch timeline, last catch
-  Debug/DebugDraw.luau          Catch radius, grip targets, contacts, predicted hand path
-  Debug/SessionLog.luau         Every press/attempt/catch/miss/release with details; export
-  Debug/InstantReplay.luau      (proposed) last 10 s, scrub at any speed
-src/server/init.server.luau     Minimal
-tests/                          Lune specs (TESTING §2)
-tuning/presets/*.json
+default.project.json            Rojo mapping (Players.CharacterAutoLoads = false)
+rokit.toml                      Pinned toolchain: rojo 7.7.0, lune 0.10.5, stylua 2.5.2, selene 0.31.0
+stylua.toml, selene.toml        Format / lint config
+src/shared/Gym/                 PURE CORE: no Roblox types; runs in Roblox and headless (Lune)
+  Tuning.luau                   Every parameter: default/min/max/unit/category/description; clamping
+  Solver2D.luau                 Bodies (dynamic/kinematic/static), revolute joints + limits + torque-limited
+                                spring motors, contacts + friction + restitution, warm start, substeps/relax,
+                                stiffness cap, velocity-expanded speculative contacts, metrics, checksum
+  Collide2D.luau                Rounded segment (capsule/circle) vs convex polygon, 1–2 point manifolds
+  Rig.luau                      6-body gymnast, joints, anatomical angle mapping, poses, motor updates
+  Scenarios.luau                P1.1 test scenes: Hang, Drop, Tumble, Wheel (moving anchor)
+  Sim.luau                      Fixed-step driver: accumulator, time scale, step cap, reset, NaN/out-of-bounds
+                                recovery, events, interpolation helpers
+src/shared/GymTests/            Test specs (shared by the Lune runner and the in-Studio self-test)
+  TestRunner.luau, StudioRun.luau, Solver.spec, Contacts.spec, Rig.spec, Sim.spec
+src/client/                     PRESENTATION ONLY (reads simulation state, never writes physics)
+  init.client.luau              Bootstrap; one render step: advance sim -> draw -> camera
+  Plane.luau                    2D plane <-> 3D world mapping
+  RigRenderer.luau              Stickman parts via BulkMoveTo, interpolated
+  WorldRenderer.luau            Course, bar, wheel drawn from the solver's own shapes; contact markers
+  CameraController.luau         Calm side view, smooth follow
+  DebugOverlay.luau             Timing, energy, momentum, joint error, contacts, angles, events
+  DebugControls.luau            P1.1 debug keys/buttons; live tuning attributes (ReplicatedStorage.GymTuning)
+src/server/init.server.luau     Runs the quick self-test in Studio on Play; nothing else
+tests/run.luau                  Headless test runner (Lune)
+tools/place_selftest.luau       Runs the BUILT place's tests through Roblox-style instance requires
+tools/client_harness.luau       Runs the BUILT place's client headlessly with engine shims; drives every control
+tools/inspect_place.luau        Prints the built place tree
+tools/solver_bench.luau         Solver settings comparison (stretch / energy / cost)
+tools/lune_mirror.luau          Mirrors src/shared into build/lune for Lune (rewrites Roblox requires to file paths)
 ```
 
-**Prototype world:**
-- a floor
-- one bar crossing the motion plane (a point grip target), about 10 studs high, tagged `Bar`
+*Changes vs the plan:*
+- `Body.luau` became `Rig.luau`.
+- `Scenarios.luau` was added for test scenes.
+- Math helpers are inlined (no `Math2D.luau`) for speed.
+- Module loading: the core uses plain Roblox `require(script.Parent.X)`, so it's fully typed in Studio. The headless runner loads a mirrored copy with those lines rewritten to file requires.
 
-**Prototype character:** a stickman in our own style (not the reference look, see REFERENCE §6), drawn on the 5-body skeleton. There are no avatars, Humanoid or Roblox character yet.
+**Later milestones** (per the plan above):
+- `Shape`, input router, touch controls, tuning panel: P1.2
+- `Twist`, release/flight logic: P1.3
+- `Catch`, session log, feedback, instant replay: P1.4
+- `WorldSlice`, `Equipment`: Phase 2
 
-**Build:** `rojo build -o build/GymProto.rbxl`. Open it in Studio and press Play. Optionally use `rojo serve` for live sync. All tools install from crates.io, which is reachable from the cloud environment.
+**Original plan (for reference):**
+
+```
+src/shared/Gym/   Tuning · Types · Body/Rig · Solver2D · Collide2D · WorldSlice · Equipment
+                  Shape · Twist · Catch · Sim
+src/client/       Input/InputRouter · Input/TouchControls · Render/RigRenderer · Render/CameraController
+                  Render/Feedback · Debug/DebugPanel · Debug/DebugOverlay · Debug/DebugDraw
+                  Debug/SessionLog · Debug/InstantReplay
+```
+
+**Prototype world (P1.1):**
+- a floor, two blocks and a ramp
+- one bar crossing the motion plane at 10 studs (point grip)
+- a rotating 4-spoke wheel (kinematic moving anchor)
+
+All of this is defined as data in `Scenarios.luau`.
+
+**Prototype character:** a stickman in our own style (not the reference look, see REFERENCE §6), drawn on the 6-body skeleton (teal torso, white limbs, far-side limbs darker). There are no avatars, Humanoid or Roblox character yet.
+
+**Build:** `rojo build -o build/BarGym.rbxl`. Open it in Studio and press Play. Optionally use `rojo serve` for live sync. See README for the test commands.
 
 ## 7. Multiplayer (designed for, not built in the prototype)
 
