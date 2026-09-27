@@ -5,7 +5,7 @@
 --
 -- Shimmed (not real engine behaviour): RunService.BindToRenderStep (we call the callback),
 -- Workspace:BulkMoveTo (sets CFrames), CurrentCamera, LocalPlayer, input/button/attribute
--- signals (we fire them). Rendering, real input and on-device performance are NOT tested.
+-- signals (we fire them), GUI AbsoluteSize (a fixed 844 x 390 phone screen). Rendering, real input and on-device performance are NOT tested.
 --
 -- Usage: lune run tools/client_harness.luau [build/BarGym.rbxl]
 
@@ -214,12 +214,38 @@ local function rigPartsOk()
 	return #parts == 25, `rig parts={#parts}`
 end
 
-local function press(buttonName)
+local function debugButton(buttonName)
 	local gui = playerGui:FindFirstChild("GymDebugButtons")
-	local row = gui and gui:FindFirstChildOfClass("Frame")
-	local button = row and row:FindFirstChild(buttonName)
+	for _, row in (if gui then gui:GetChildren() else {}) do
+		local button = row:FindFirstChild(buttonName)
+		if button then
+			return button, row
+		end
+	end
+	return nil, nil
+end
+local function press(buttonName)
+	local button = debugButton(buttonName)
 	assert(button, "button " .. buttonName)
 	button.Activated:Fire()
+end
+-- the help card (HelpPanel): its title and body text, or nil while hidden
+local function helpCard()
+	local gui = playerGui:FindFirstChild("GymHelp")
+	local card = gui and gui:FindFirstChild("Card")
+	if not card or not card.Visible then
+		return nil
+	end
+	return card.Title.Text .. "\n" .. card.Body.Text .. "\n" .. card.Footer.Text
+end
+local function helpShows(needle)
+	local text = helpCard()
+	return text ~= nil and text:find(needle, 1, true) ~= nil
+end
+-- the drawn torso block's colour and material
+local function torsoLook()
+	local part = workspace.GymView.Gymnast:FindFirstChild("torso")
+	return part.Color:ToHex(), part.Material.Name
 end
 
 local UIS = game:GetService("UserInputService")
@@ -256,6 +282,11 @@ local okStart, errStart = pcall(function()
 	load(client)()
 end)
 check(okStart, "GymClient starts without errors " .. (if okStart then "" else tostring(errStart)))
+-- the screen size is engine-computed in Roblox: give the help card a landscape phone screen
+local helpGui = playerGui:FindFirstChild("GymHelp")
+if helpGui then
+	helpGui.AbsoluteSize = roblox.Vector2.new(844, 390)
+end
 check(renderCallback ~= nil, "render step bound")
 if not renderCallback then
 	process.exit(1)
@@ -265,7 +296,57 @@ local ok, err = frames(240)
 check(ok, "240 frames of Hang " .. (if ok then "" else tostring(err)))
 local partsOk, partsInfo = rigPartsOk()
 check(partsOk, "rig parts present and finite (" .. partsInfo .. ")")
-check(overlayText():find("scene=Hang", 1, true) ~= nil, "overlay shows scene=Hang")
+
+-- What a player sees at start: the help card (touch names on a touch device), no numbers
+check(helpShows("ON THE BAR"), `help card: on the bar ({tostring(helpCard())})`)
+local cardFrame = playerGui.GymHelp.Card
+check(
+	cardFrame.Size.X.Offset > 300 and cardFrame.Size.X.Offset < 460 and cardFrame.Position.X.Offset > 300,
+	`help card fitted between the thumb buttons on a phone ({cardFrame.Size.X.Offset} wide at x {cardFrame.Position.X.Offset})`
+)
+check(helpShows(">TUCK<") and helpShows(">LET GO<"), "help card names the touch buttons on a touch device")
+check(overlayText() == "" and playerGui.GymDebug.Readout.Visible == false, "numbers overlay hidden at start")
+local devButton, mainRow = debugButton("Dev")
+local poseButton, devRow = debugButton("Pose")
+check(devButton ~= nil and mainRow ~= nil and mainRow.Visible, "Dev button in the main row")
+check(poseButton ~= nil and devRow ~= nil and devRow.Visible == false, "developer buttons hidden at start")
+press("Dev")
+check(devRow.Visible == true, "Dev shows the developer buttons")
+press("Dev")
+check(devRow.Visible == false, "Dev hides them again")
+check(
+	debugButton("Scene").Text == "Scene: Hang",
+	`Scene button names the scene ({debugButton("Scene").Text})`
+)
+local tb = playerGui.GymTouch
+check(
+	tb.Tuck.Label.Text == "TUCK" and tb.Tuck.Hint.Text ~= "" and tb.Grab.Hint.Text == "next update",
+	"touch buttons show a hint under the name; Grab says it comes in the next update"
+)
+check(tb.Grab.Label.TextTransparency > 0.3, "Grab button dimmed until catching exists")
+
+-- colour switch: wood -> grey -> wood, kept across Reset
+local hex0, mat0 = torsoLook()
+check(mat0 == "Wood" and hex0:upper() == "94603A", `body starts wooden ({hex0} {mat0})`)
+press("Color")
+local hex1, mat1 = torsoLook()
+check(mat1 == "SmoothPlastic" and hex1:upper() == "5B5F66", `Color switches to grey ({hex1} {mat1})`)
+key(roblox.Enum.KeyCode.R)
+frames(5)
+local hex2 = torsoLook()
+check(hex2:upper() == "5B5F66", `the colour stays grey after Reset ({hex2})`)
+key(roblox.Enum.KeyCode.L)
+local hex3, mat3 = torsoLook()
+check(mat3 == "Wood" and hex3:upper() == "94603A", `key L switches back to wood ({hex3} {mat3})`)
+partsOk, partsInfo = rigPartsOk()
+check(partsOk, "rig parts intact after colour switches (" .. partsInfo .. ")")
+frames(2)
+check(helpShows("S</font></b> (Tuck)"), "after a key press the help card names the keys")
+
+-- the numbers overlay is a developer tool: F2 shows it (the checks below read it)
+key(roblox.Enum.KeyCode.F2)
+frames(1)
+check(overlayText():find("scene=Hang", 1, true) ~= nil, "F2 shows the overlay: scene=Hang")
 check(speedText() == nil, "slow-mo indicator hidden at normal speed (start)")
 check(bulkMoves >= 240, "BulkMoveTo called every frame")
 local camPos = camera.CFrame.Position
@@ -282,6 +363,11 @@ for i, name in { "Hang", "Drop", "Tumble", "Wheel", "Stand" } do
 	ok, err = frames(300)
 	check(ok, `key {i} -> {name}, 300 frames ` .. (if ok then "" else tostring(err)))
 	check(freshOverlay():find("scene=" .. name, 1, true) ~= nil, `overlay shows scene={name}`)
+	check(debugButton("Scene").Text == "Scene: " .. name, `Scene button shows {name}`)
+	local card = ({ Hang = "ON THE BAR", Wheel = "ON THE BAR", Stand = "ON YOUR FEET" })[name]
+	if card then
+		check(helpShows(card), `help card in {name}: {card}`)
+	end
 	partsOk, partsInfo = rigPartsOk()
 	check(partsOk, `rig parts ok in {name} ({partsInfo})`)
 end
@@ -441,6 +527,16 @@ key(Enum.KeyCode.W)
 frames(20)
 expectOverlay("key W lets go of the bar", "mode=air", true)
 expectOverlay("Let Go counted once", "letGo 1", true)
+check(
+	helpShows("IN THE AIR") and helpShows("next update"),
+	"help card in the air (and says catching comes next)"
+)
+key(Enum.KeyCode.H)
+frames(2)
+check(helpCard() == nil, "H hides the help card")
+key(Enum.KeyCode.H)
+frames(2)
+check(helpCard() ~= nil, "H shows it again (it follows the body: by now it may have landed)")
 
 key(Enum.KeyCode.Five) -- Stand
 frames(120)
@@ -503,6 +599,7 @@ frames(10)
 pad("InputChanged", Enum.KeyCode.ButtonR2, 0.5)
 frames(5)
 expectOverlay("gamepad RT half-pressed = Tuck 0.50", "tuck 0.50", true)
+check(helpShows("RT</font></b> (Tuck)"), "with a gamepad the help card names its buttons")
 pad("InputChanged", Enum.KeyCode.ButtonR2, 0)
 pad("InputBegan", Enum.KeyCode.ButtonB)
 frames(10)

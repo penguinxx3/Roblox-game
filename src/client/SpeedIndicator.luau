@@ -1,5 +1,5 @@
 --!strict
--- SpeedIndicator: shows the slow-motion speed (e.g. "SLOW-MO 0.25×") at the top of the screen
+-- SpeedIndicator: shows the slow-motion speed (e.g. "SLOW-MO 0.25×") at the top left
 -- while the simulation runs slower than real time; hidden at normal speed. Display only: it
 -- reads the time scale and never changes it (P1.2 playtest round 2).
 
@@ -21,8 +21,8 @@ function SpeedIndicator.new(playerGui: Instance): SpeedIndicator
 	gui.Parent = playerGui
 	local label = Instance.new("TextLabel")
 	label.Name = "Speed"
-	label.AnchorPoint = Vector2.new(0.5, 0)
-	label.Position = UDim2.new(0.5, 0, 0, 8)
+	label.AnchorPoint = Vector2.new(0, 0)
+	label.Position = UDim2.new(0, 8, 0, 8) -- clear of the button row at the top right
 	label.Size = UDim2.fromOffset(0, 0)
 	label.AutomaticSize = Enum.AutomaticSize.XY
 	label.BackgroundColor3 = Color3.fromRGB(12, 14, 18)

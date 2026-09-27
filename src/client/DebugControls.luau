@@ -4,9 +4,11 @@
 --   Keyboard: R reset · 1-5 scenario · V pose override (debug: hold a named pose instead
 --             of the player's input; cycles through the poses and back to off)
 --             T cycle slow-mo · G moon gravity · P pause · N single step (while paused)
---             C contact markers · F2 overlay
+--             C contact markers · F2 numbers overlay · H help card · L colour (wood / grey)
 --             B blind A/B switch · Shift+B reveal (see below)
---   Touch:    a compact button row (top-right) with the same actions (A/B switches only).
+--   Touch:    a compact button row (top-right): Reset, Scene (shows the current one), Slow,
+--             Moon, Color, Help, and Dev, which opens a second row with the developer tools
+--             (Pose, Pause, Step, Info = numbers overlay, A/B switch).
 --   Tuning:   every Tuning parameter is mirrored as an attribute on the client-side
 --             folder ReplicatedStorage.GymTuning. Edit them live in Studio's
 --             Properties panel during Play (client view). `reset` params apply on reset.
@@ -33,6 +35,8 @@ export type Actions = {
 	toggleOverlay: () -> (),
 	toggleContacts: () -> (),
 	stepOnce: () -> (),
+	toggleHelp: () -> (),
+	cyclePalette: () -> (),
 }
 
 local TIME_SCALES = { 1, 0.5, 0.25, 0.1 }
@@ -60,6 +64,15 @@ end
 function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { note: string }
 	local state = { note = "" }
 
+	-- the Scene button names the scene you're in (made below)
+	local sceneButton: TextButton? = nil
+	local function setScene(name: string)
+		actions.scenario(name)
+		if sceneButton then
+			sceneButton.Text = `Scene: {sim.scenario}`
+		end
+	end
+
 	local function cycleScenario()
 		local list = Scenarios.list
 		local idx = 1
@@ -68,7 +81,7 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 				idx = i
 			end
 		end
-		actions.scenario(list[idx % #list + 1].name)
+		setScene(list[idx % #list + 1].name)
 	end
 
 	-- blind A/B: random mapping per session, hidden until revealed
@@ -142,6 +155,8 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		Step = actions.stepOnce,
 		Info = actions.toggleOverlay,
 		["A/B"] = abSwitch,
+		Color = actions.cyclePalette,
+		Help = actions.toggleHelp,
 	}
 
 	-- Keyboard (keyed by KeyCode name: robust and readable)
@@ -154,12 +169,14 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		N = handlers.Step,
 		C = actions.toggleContacts,
 		F2 = handlers.Info,
+		H = handlers.Help,
+		L = handlers.Color,
 	}
 	for i, keyName in { "One", "Two", "Three", "Four", "Five" } do
 		local s = Scenarios.list[i]
 		if s then
 			keyMap[keyName] = function()
-				actions.scenario(s.name)
+				setScene(s.name)
 			end
 		end
 	end
@@ -184,28 +201,33 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		end
 	end)
 
-	-- Touch / mouse button row
+	-- Touch / mouse buttons: the everyday row, and a developer row under it (Dev shows it)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "GymDebugButtons"
 	gui.ResetOnSpawn = false
 	gui.Parent = playerGui
-	local row = Instance.new("Frame")
-	row.AnchorPoint = Vector2.new(1, 0)
-	row.Position = UDim2.new(1, -8, 0, 8)
-	row.Size = UDim2.fromOffset(0, 36)
-	row.AutomaticSize = Enum.AutomaticSize.X
-	row.BackgroundTransparency = 1
-	row.Parent = gui
-	local layout = Instance.new("UIListLayout")
-	layout.FillDirection = Enum.FillDirection.Horizontal
-	layout.Padding = UDim.new(0, 6)
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Parent = row
-	for i, name in { "Reset", "Scene", "Pose", "Slow", "Moon", "Pause", "Step", "Info", "A/B" } do
+	local function row(name: string, y: number): Frame
+		local r = Instance.new("Frame")
+		r.Name = name
+		r.AnchorPoint = Vector2.new(1, 0)
+		r.Position = UDim2.new(1, -8, 0, y)
+		r.Size = UDim2.fromOffset(0, 32)
+		r.AutomaticSize = Enum.AutomaticSize.X
+		r.BackgroundTransparency = 1
+		r.Parent = gui
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = Enum.FillDirection.Horizontal
+		layout.Padding = UDim.new(0, 6)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Parent = r
+		return r
+	end
+	local function button(parent: Frame, name: string, order: number): TextButton
 		local b = Instance.new("TextButton")
 		b.Name = name
-		b.LayoutOrder = i
-		b.Size = UDim2.fromOffset(58, 36)
+		b.LayoutOrder = order
+		b.Size = UDim2.fromOffset(52, 32)
+		b.AutomaticSize = Enum.AutomaticSize.X
 		b.BackgroundColor3 = Color3.fromRGB(28, 34, 44)
 		b.BackgroundTransparency = 0.2
 		b.TextColor3 = Color3.fromRGB(235, 240, 245)
@@ -216,9 +238,30 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		local corner = Instance.new("UICorner")
 		corner.CornerRadius = UDim.new(0, 8)
 		corner.Parent = b
-		b.Parent = row
-		b.Activated:Connect(handlers[name])
+		local pad = Instance.new("UIPadding")
+		pad.PaddingLeft = UDim.new(0, 8)
+		pad.PaddingRight = UDim.new(0, 8)
+		pad.Parent = b
+		b.Parent = parent
+		return b
 	end
+	local main = row("Main", 8)
+	local dev = row("Dev", 46)
+	dev.Visible = false
+	for i, name in { "Reset", "Scene", "Slow", "Moon", "Color", "Help" } do
+		button(main, name, i).Activated:Connect(handlers[name])
+	end
+	local devButton = button(main, "Dev", 99)
+	devButton.Activated:Connect(function()
+		dev.Visible = not dev.Visible
+		devButton.BackgroundTransparency = if dev.Visible then 0 else 0.2
+	end)
+	for i, name in { "Pose", "Pause", "Step", "Info", "A/B" } do
+		button(dev, name, i).Activated:Connect(handlers[name])
+	end
+	local sb = main:FindFirstChild("Scene") :: TextButton
+	sb.Text = `Scene: {sim.scenario}`
+	sceneButton = sb
 
 	-- Live tuning via attributes
 	local folder = ReplicatedStorage:FindFirstChild("GymTuning") or Instance.new("Folder")

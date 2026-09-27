@@ -6,7 +6,7 @@
 --   Arch (hold)   A  or  ←      LT (analog)    ARCH   (left thumb)
 --   Tuck (hold)   S  or  ↓      RT (analog)    TUCK   (left thumb)
 --   Let Go        W  or  ↑      B              LET GO (right thumb)
---   Grab          Space or J    A              GRAB   (right thumb; consumed from P1.3)
+--   Grab          Space or J    A              GRAB   (right thumb; dimmed until P1.3 uses it)
 --   Twist L / R   Q / E         LB / RB        ◄ / ►  (right thumb; both = hold the angle)
 --   Reset         R (debug)     Y              (debug button row)
 --
@@ -16,7 +16,11 @@
 --
 -- The touch layout is a functional placeholder, not the mobile UI: plain buttons that react
 -- on touch-down, support several simultaneous touches and also accept mouse clicks (for
--- testing in Studio). Shown on touch devices, or on any device with `showTouch`.
+-- testing in Studio). Each button has a short hint under its name. Shown on touch devices,
+-- or on any device with `showTouch`.
+--
+-- `device` is the kind of input used last ("keyboard" | "gamepad" | "touch"), so the help
+-- panel can name the right keys; NAMES says what each action is called on each device.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -29,6 +33,22 @@ InputRouter.__index = InputRouter
 
 type Held = { arch: number, tuck: number, twistLeft: boolean, twistRight: boolean }
 
+export type Device = "keyboard" | "gamepad" | "touch"
+
+-- What each action is called on screen, per device (keep in step with the bindings below)
+InputRouter.NAMES = {
+	keyboard = { arch = "A", tuck = "S", letGo = "W", twist = "Q / E", grab = "Space", reset = "R" },
+	gamepad = { arch = "LT", tuck = "RT", letGo = "B", twist = "LB / RB", grab = "A", reset = "Y" },
+	touch = {
+		arch = "ARCH",
+		tuck = "TUCK",
+		letGo = "LET GO",
+		twist = "◄ ►",
+		grab = "GRAB",
+		reset = "Reset",
+	},
+}
+
 export type Router = typeof(setmetatable(
 	{} :: {
 		frame: Input.Frame,
@@ -37,6 +57,7 @@ export type Router = typeof(setmetatable(
 		touch: Held,
 		touchGui: ScreenGui?,
 		onReset: (() -> ())?,
+		device: Device,
 	},
 	InputRouter
 ))
@@ -87,6 +108,7 @@ function InputRouter.new(playerGui: Instance, options: { showTouch: boolean?, on
 		touch = blankHeld(),
 		touchGui = nil,
 		onReset = options and options.onReset,
+		device = (if UserInputService.TouchEnabled then "touch" else "keyboard") :: Device,
 	}, InputRouter)
 
 	local function isGamepad(inputType: Enum.UserInputType): boolean
@@ -95,7 +117,14 @@ function InputRouter.new(playerGui: Instance, options: { showTouch: boolean?, on
 
 	UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean)
 		local keyName = input.KeyCode.Name
+		local kind = input.UserInputType.Name
+		if kind == "Touch" then
+			self.device = "touch"
+		elseif kind == "Keyboard" then
+			self.device = "keyboard"
+		end
 		if isGamepad(input.UserInputType) then
+			self.device = "gamepad"
 			local hold = PAD_HOLD[keyName]
 			if hold then
 				setHeld(self.gamepad, hold, true)
@@ -155,6 +184,9 @@ function InputRouter.new(playerGui: Instance, options: { showTouch: boolean?, on
 		local keyName = input.KeyCode.Name
 		if keyName == "ButtonL2" or keyName == "ButtonR2" then
 			local level = math.clamp(input.Position.Z, 0, 1)
+			if level > 0.02 then
+				self.device = "gamepad"
+			end
 			local action = PAD_HOLD[keyName]
 			setHeld(self.gamepad, action, level > 0.02, level)
 		end
@@ -178,7 +210,31 @@ function InputRouter.buildTouch(self: Router, playerGui: Instance)
 	gui.Parent = playerGui
 	self.touchGui = gui
 
-	local function button(name: string, label: string, anchor: Vector2, pos: UDim2, size: number)
+	-- a text line inside a button; not Active, so touches still reach the button
+	local function text(parent: Instance, name: string, value: string, y: number, h: number, font: Enum.Font)
+		local l = Instance.new("TextLabel")
+		l.Name = name
+		l.Active = false
+		l.BackgroundTransparency = 1
+		l.Position = UDim2.new(0.08, 0, y, 0)
+		l.Size = UDim2.new(0.84, 0, h, 0)
+		l.Font = font
+		l.TextScaled = true
+		l.TextColor3 = Color3.fromRGB(240, 244, 248)
+		l.Text = value
+		l.Parent = parent
+		return l
+	end
+
+	-- a button: the action's name, and under it a short hint of what it does
+	local function button(
+		name: string,
+		label: string,
+		hint: string,
+		anchor: Vector2,
+		pos: UDim2,
+		size: number
+	)
 		local b = Instance.new("TextButton")
 		b.Name = name
 		b.AnchorPoint = anchor
@@ -186,10 +242,7 @@ function InputRouter.buildTouch(self: Router, playerGui: Instance)
 		b.Size = UDim2.new(size, 0, size, 0)
 		b.BackgroundColor3 = Color3.fromRGB(28, 34, 44)
 		b.BackgroundTransparency = 0.45
-		b.TextColor3 = Color3.fromRGB(240, 244, 248)
-		b.Font = Enum.Font.GothamBold
-		b.TextScaled = true
-		b.Text = label
+		b.Text = ""
 		b.AutoButtonColor = false
 		local aspect = Instance.new("UIAspectRatioConstraint")
 		aspect.AspectRatio = 1
@@ -198,12 +251,9 @@ function InputRouter.buildTouch(self: Router, playerGui: Instance)
 		local corner = Instance.new("UICorner")
 		corner.CornerRadius = UDim.new(0.25, 0)
 		corner.Parent = b
-		local pad = Instance.new("UIPadding")
-		pad.PaddingTop = UDim.new(0.3, 0)
-		pad.PaddingBottom = UDim.new(0.3, 0)
-		pad.PaddingLeft = UDim.new(0.08, 0)
-		pad.PaddingRight = UDim.new(0.08, 0)
-		pad.Parent = b
+		text(b, "Label", label, 0.2, 0.36, Enum.Font.GothamBold)
+		local h = text(b, "Hint", hint, 0.62, 0.18, Enum.Font.GothamMedium)
+		h.TextTransparency = 0.2
 		b.Parent = gui
 		return b
 	end
@@ -222,26 +272,39 @@ function InputRouter.buildTouch(self: Router, playerGui: Instance)
 		TwistRight = "twistRightPresses",
 	}
 	local buttons = {
-		button("Arch", "ARCH", Vector2.new(0, 1), UDim2.new(0.03, 0, 0.62, 0), 0.24),
-		button("Tuck", "TUCK", Vector2.new(0, 1), UDim2.new(0.03, 0, 0.94, 0), 0.24),
-		button("TwistLeft", "◄", Vector2.new(1, 1), UDim2.new(0.84, 0, 0.56, 0), 0.18),
-		button("TwistRight", "►", Vector2.new(1, 1), UDim2.new(0.97, 0, 0.56, 0), 0.18),
-		button("LetGo", "LET GO", Vector2.new(1, 1), UDim2.new(0.80, 0, 0.94, 0), 0.22),
-		button("Grab", "GRAB", Vector2.new(1, 1), UDim2.new(0.97, 0, 0.94, 0), 0.28),
+		button("Arch", "ARCH", "open · reach", Vector2.new(0, 1), UDim2.new(0.03, 0, 0.62, 0), 0.24),
+		button("Tuck", "TUCK", "curl · crouch", Vector2.new(0, 1), UDim2.new(0.03, 0, 0.94, 0), 0.24),
+		button("TwistLeft", "◄", "twist", Vector2.new(1, 1), UDim2.new(0.84, 0, 0.56, 0), 0.18),
+		button("TwistRight", "►", "twist", Vector2.new(1, 1), UDim2.new(0.97, 0, 0.56, 0), 0.18),
+		button("LetGo", "LET GO", "drop the bar", Vector2.new(1, 1), UDim2.new(0.80, 0, 0.94, 0), 0.22),
+		button("Grab", "GRAB", "next update", Vector2.new(1, 1), UDim2.new(0.97, 0, 0.94, 0), 0.28),
 	}
+	-- Grab has no effect until catching arrives (P1.3): shown dimmed so it isn't mistaken
+	-- for a working button
+	local grab = buttons[6]
+	for _, l in grab:GetChildren() do
+		if l:IsA("TextLabel") then
+			l.TextTransparency = 0.55
+		end
+	end
 	for _, b in buttons do
 		local active: { [any]: boolean } = {}
+		local idle = if b == grab then 0.7 else 0.45
+		b.BackgroundTransparency = idle
 		local function refresh()
 			local down = next(active) ~= nil
 			local hold = holds[b.Name]
 			if hold then
 				setHeld(self.touch, hold, down)
 			end
-			b.BackgroundTransparency = if down then 0.15 else 0.45
+			b.BackgroundTransparency = if down then 0.15 else idle
 		end
 		b.InputBegan:Connect(function(input: InputObject)
 			local t = input.UserInputType.Name
 			if t == "Touch" or t == "MouseButton1" then
+				if t == "Touch" then
+					self.device = "touch"
+				end
 				active[input] = true
 				local pressKey = presses[b.Name]
 				if pressKey then

@@ -6,10 +6,10 @@
 -- Twist (P1.2) turns the whole drawn body about its long axis through the centre of mass
 -- (Pose3D), so the planar body can face toward or away from the camera mid-air.
 --
--- Look: a wooden figure: one rectangular torso block, a head on a neck, slim limbs with
--- darker joint balls, darker feet, far-side limbs a shade darker for depth. The proportions and
--- the colours (Look.PALETTE, hex codes) come from Look (shared, presentation only); the physics
--- collision shapes are not drawn.
+-- Look: one rectangular torso block, a head on a neck, slim limbs with darker joint balls,
+-- darker feet, far-side limbs a shade darker for depth; wooden or grey (setPalette). The
+-- proportions and the colours (Look.PALETTES, hex codes) come from Look (shared, presentation
+-- only); the physics collision shapes are not drawn.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -22,11 +22,19 @@ local Plane = require(script.Parent:WaitForChild("Plane"))
 local RigRenderer = {}
 RigRenderer.__index = RigRenderer
 
-local MATERIAL = Enum.Material.Wood -- SmoothPlastic for a plain finish
+-- each palette's material (any other palette: SmoothPlastic)
+local MATERIALS: { [string]: Enum.Material } = {
+	wood = Enum.Material.Wood,
+	grey = Enum.Material.SmoothPlastic,
+}
+
+local function palette(name: string): { [string]: string }
+	local all: { [string]: { [string]: string } } = Look.PALETTES :: any
+	return all[name] or all[Look.PALETTE_ORDER[1]]
+end
 
 -- A shape's colour: its role's palette entry; the far copy of a limb uses "<role>Far" if set.
-local function colorOf(p: Look.Prim): Color3
-	local P: { [string]: string } = Look.PALETTE
+local function colorOf(p: Look.Prim, P: { [string]: string }): Color3
 	local hex = if p.side < 0 then P[p.role .. "Far"] or P[p.role] else P[p.role]
 	return Color3.fromHex(hex)
 end
@@ -43,11 +51,12 @@ export type RigRenderer = typeof(setmetatable(
 		parts: { Part },
 		cframes: { CFrame },
 		sim: any,
+		palette: string,
 	},
 	RigRenderer
 ))
 
-local function makePart(shape: Enum.PartType, color: Color3, parent: Instance): Part
+local function makePart(shape: Enum.PartType, parent: Instance): Part
 	local p = Instance.new("Part")
 	p.Shape = shape
 	p.Anchored = true
@@ -55,15 +64,13 @@ local function makePart(shape: Enum.PartType, color: Color3, parent: Instance): 
 	p.CanQuery = false
 	p.CanTouch = false
 	p.CastShadow = true
-	p.Material = MATERIAL
-	p.Color = color
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
 	p.Parent = parent
 	return p
 end
 
-function RigRenderer.new(sim: any, parent: Instance): RigRenderer
+function RigRenderer.new(sim: any, parent: Instance, paletteName: string?): RigRenderer
 	local folder = Instance.new("Folder")
 	folder.Name = "Gymnast"
 	folder.Parent = parent
@@ -73,21 +80,21 @@ function RigRenderer.new(sim: any, parent: Instance): RigRenderer
 		parts = {},
 		cframes = {},
 		sim = sim,
+		palette = "",
 	}, RigRenderer)
 
 	for _, p in Look.build(sim.rig) do
-		local color = colorOf(p)
 		local part: Part
 		if p.kind == "ball" then
-			part = makePart(Enum.PartType.Ball, color, folder)
+			part = makePart(Enum.PartType.Ball, folder)
 			part.Size = Vector3.new(2 * p.r, 2 * p.r, 2 * p.r)
 		elseif p.kind == "rod" then
 			-- a cylinder along its X axis; the joint balls round off the ends
-			part = makePart(Enum.PartType.Cylinder, color, folder)
+			part = makePart(Enum.PartType.Cylinder, folder)
 			local dx, dy = p.bx - p.ax, p.by - p.ay
 			part.Size = Vector3.new(math.sqrt(dx * dx + dy * dy), 2 * p.r, 2 * p.r)
 		else
-			part = makePart(Enum.PartType.Block, color, folder)
+			part = makePart(Enum.PartType.Block, folder)
 			part.Size = Vector3.new(p.len, p.thick, p.width)
 		end
 		part.Name = p.name
@@ -97,7 +104,19 @@ function RigRenderer.new(sim: any, parent: Instance): RigRenderer
 		self.parts[i] = item.part
 		self.cframes[i] = CFrame.identity
 	end
+	self:setPalette(paletteName or Look.PALETTE_ORDER[1])
 	return self
+end
+
+-- Colours every part from the named palette (Look.PALETTES) and its material.
+function RigRenderer.setPalette(self: RigRenderer, name: string)
+	self.palette = name
+	local P = palette(name)
+	local material = MATERIALS[name] or Enum.Material.SmoothPlastic
+	for _, item in self.items do
+		item.part.Color = colorOf(item.prim, P)
+		item.part.Material = material
+	end
 end
 
 -- Positions every part from the interpolated simulation state.

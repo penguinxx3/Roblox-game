@@ -199,9 +199,12 @@ src/client/                     PRESENTATION ONLY (reads simulation state, never
   WorldRenderer.luau            Course, bar, wheel drawn from the solver's own shapes; contact markers
   CameraController.luau         Calm side view, smooth follow
   DebugOverlay.luau             Timing, energy, momentum, joint error, contacts, angles, movement state, input, events
-  SpeedIndicator.luau           Slow-motion speed label at the top of the screen (display only)
+                                (a developer tool: hidden at start, F2 / Dev -> Info)
+  SpeedIndicator.luau           Slow-motion speed label at the top left (display only)
+  HelpPanel.luau                "What to do now" card for the current situation (bar / air / feet / fallen), naming the
+                                controls of the device used last (display only)
   DebugControls.luau            Debug keys/buttons (scene 1-5, pose override, slow-mo, moon, pause, step, contacts,
-                                blind A/B with hidden labels);
+                                blind A/B with hidden labels, help card, body colour; developer buttons behind Dev);
                                 live tuning attributes (ReplicatedStorage.GymTuning)
 src/server/init.server.luau     Runs the quick self-test in Studio on Play; nothing else
 tests/run.luau                  Headless test runner (Lune)
@@ -243,7 +246,7 @@ src/client/       Input/InputRouter · Input/TouchControls · Render/RigRenderer
 
 All of this is defined as data in `Scenarios.luau`.
 
-**Prototype character:** a wooden mannequin drawn on the 6-body skeleton. Its proportions come from `Look`, separate from the collision shapes (P1.2 round 3): one rectangular torso block from hip line to shoulder line, a head on a neck, slim limbs with darker joint balls and hands (far-side limbs darker), and block feet, all in the Wood material. The colours are hex codes in one table, `Look.PALETTE` (the renderer reads them with `Color3.fromHex`); the torso is a shade darker than the limbs so an arm in front of it stays readable. The drawing stays inside the collision shapes (tested), so contacts look right; physics is unchanged (bit-identical). There are no avatars, Humanoid or Roblox character yet.
+**Prototype character:** a wooden mannequin drawn on the 6-body skeleton. Its proportions come from `Look`, separate from the collision shapes (P1.2 round 3): one rectangular torso block from hip line to shoulder line, a head on a neck, slim limbs with darker joint balls and hands (far-side limbs darker), and block feet, in the Wood material, or grey in SmoothPlastic (the Color button / L switches; the choice survives Reset). The colours are hex codes in `Look.PALETTES` (the renderer reads them with `Color3.fromHex`); the torso is a shade darker than the limbs so an arm in front of it stays readable. The drawing stays inside the collision shapes (tested), so contacts look right; physics is unchanged (bit-identical). There are no avatars, Humanoid or Roblox character yet.
 
 **Build:** `rojo build -o build/BarGym.rbxl`. Open it in Studio and press Play. Optionally use `rojo serve` for live sync. See README for the test commands.
 

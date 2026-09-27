@@ -41,8 +41,9 @@ cargo install stylua --locked --features luau
 | Type-check (optional) | `rojo sourcemap default.project.json -o sourcemap.json --include-non-scripts`, then `luau-lsp analyze --platform roblox --sourcemap sourcemap.json --definitions=@roblox=globalTypes.d.luau src` |
 
 **In Studio:**
-- Play: **A/←** Arch, **S/↓** Tuck (on the ground: crouch, release to jump), both = Pike, **W/↑** Let Go, **Q/E** Twist. Gamepad: LT/RT Arch/Tuck (analog), B Let Go, LB/RB Twist, Y Reset. Touch devices get a minimal button layout.
-- Debug: **R** reset, **1–5** scene (Hang / Drop / Tumble / Wheel / Stand), **V** pose override, **T** slow-mo, **G** moon gravity, **P** pause, **N** single step, **C** contact markers, **B** blind A/B (Shift+B reveal), **F2** overlay. The same actions are buttons at the top right.
+- Play: **A/←** Arch, **S/↓** Tuck (on the ground: crouch, release to jump), both = Pike, **W/↑** Let Go, **Q/E** Twist. Gamepad: LT/RT Arch/Tuck (analog), B Let Go, LB/RB Twist, Y Reset. Touch devices get a minimal button layout with a hint under each button.
+- A help card at the bottom says what to do in the current situation, with your device's controls (**H** hides it). **L** switches the body colour (wood / grey).
+- Debug: **R** reset, **1–5** scene (Hang / Drop / Tumble / Wheel / Stand), **V** pose override, **T** slow-mo, **G** moon gravity, **P** pause, **N** single step, **C** contact markers, **B** blind A/B (Shift+B reveal), **F2** numbers overlay (hidden at start). Buttons at the top right: Reset, Scene, Slow, Moon, Color, Help, and Dev for the developer tools.
 - Every tuning parameter is live-editable as an attribute on `ReplicatedStorage.GymTuning` (client view) during Play.
 
 ## Code layout

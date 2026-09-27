@@ -47,7 +47,7 @@ Grab and Let Go are never both valid at the same moment, so pressing the wrong o
 
 *Ground (built early, in P1.2):* no extra buttons. **Tuck = crouch; releasing Tuck from a crouch pushes off and jumps physically** (a quick tap only dips). **Arch = reach** (arms up, rise); holding Arch through the push, or pressing it just after takeoff, makes a back flip: the takeoff spins the body backward at full jump height (the feet plus a takeoff spin assist, P1.2 round 2). In the air Arch opens the body; it can't start a rotation (angular momentum is conserved). Pike on the ground crouches like Tuck. Landing on the feet is contact physics plus a landing reflex; landing on hands is Phase 2.
 
-*As built in P1.2:* the keyboard and gamepad tables below are implemented (Grab is counted but has no effect until P1.3; Reset is on R / Y; the alternate debug keys \` and gamepad View/Select are not bound yet). Touch uses a **minimal functional Layout A** (touch-down, multi-touch, also clickable with a mouse), not the final mobile UI; Layout B, button sizing/opacity settings and the clean-recording mode come later.
+*As built in P1.2:* the keyboard and gamepad tables below are implemented (Grab is counted but has no effect until P1.3; Reset is on R / Y; the alternate debug keys \` and gamepad View/Select are not bound yet). Touch uses a **minimal functional Layout A** (touch-down, multi-touch, also clickable with a mouse), not the final mobile UI; Layout B, button sizing/opacity settings and the clean-recording mode come later. Since the controls pass, each touch button carries a short hint, GRAB is dimmed until P1.3, and a help card names what to do in the current situation with the controls of the device used last (a prototype aid, not the final onboarding).
 
 ### Mobile (primary; landscape)
 
@@ -122,7 +122,7 @@ Grab and Let Go are never both valid at the same moment, so pressing the wrong o
 
 ## 6. Avatars and look
 
-- **Prototype:** a wooden mannequin (one rectangular torso block, head on a neck, slim limbs with darker joint balls, block feet; brown Wood-material palette in `Look.PALETTE`). Since P1.2 round 3 it uses a generic physics-dummy shape language, and since look pass 2 a brown wooden palette, both at the owner's request (REFERENCE_ANALYSIS §6). Its drawn proportions are separate from the physics body, which the drawing never changes.
+- **Prototype:** a wooden mannequin (one rectangular torso block, head on a neck, slim limbs with darker joint balls, block feet; a brown Wood-material palette by default and a grey one, switched in game, in `Look.PALETTES`). Since P1.2 round 3 it uses a generic physics-dummy shape language, and since look pass 2 a brown wooden palette, both at the owner's request (REFERENCE_ANALYSIS §6). Its drawn proportions are separate from the physics body, which the drawing never changes.
 - **Game:** the player's R15 avatar posed from the simulation. Body scale is limited to standard proportions so physics is identical for everyone. Stickman mode stays as a setting.
 - **Our own art direction:** palette, skybox, equipment designs and UI. Nothing from the reference's look (REFERENCE §6).
 

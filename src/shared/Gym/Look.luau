@@ -12,25 +12,39 @@
 --   * box feet whose sole is the physics foot's sole
 -- Every shape stays inside its body's collision shapes (Look.spec checks this), so contacts
 -- still look right. The simulation never reads this module: physics is unchanged.
--- The colours are here too (PALETTE): hex codes, to tweak freely.
+-- The colours are here too (PALETTES): hex codes, to tweak freely.
 
 local Rig = require(script.Parent.Rig)
 
 local Look = {}
 
--- Colours: a wooden figure. Hex codes ("#RRGGBB"); the renderer reads them with
--- Color3.fromHex, so change any of them here. "Far" is the copy of an arm or leg on the side
--- away from the camera, a shade darker so the two sides read apart.
-Look.PALETTE = {
-	torso = "#94603A", -- the torso block; a shade darker than the limbs, so an arm in front reads
-	head = "#B98352", -- head and neck
-	limb = "#B98352", -- upper arms, forearms, thighs, shanks, hands
-	limbFar = "#8A5C33",
-	joint = "#6E4222", -- shoulder, elbow, hip, knee and ankle balls
-	jointFar = "#57341B",
-	foot = "#5E3A1F",
-	footFar = "#4A2D17",
+-- Colours: hex codes ("#RRGGBB") the renderer reads with Color3.fromHex, so change any of
+-- them here. Two palettes, switched in game (the Color button, or L): a wooden figure and a
+-- grey one. "Far" is the copy of an arm or leg on the side away from the camera, a shade
+-- darker so the two sides read apart. The renderer picks each palette's material.
+Look.PALETTES = {
+	wood = {
+		torso = "#94603A", -- the torso block; a shade darker than the limbs, so an arm in front reads
+		head = "#B98352", -- head and neck
+		limb = "#B98352", -- upper arms, forearms, thighs, shanks, hands
+		limbFar = "#8A5C33",
+		joint = "#6E4222", -- shoulder, elbow, hip, knee and ankle balls
+		jointFar = "#57341B",
+		foot = "#5E3A1F",
+		footFar = "#4A2D17",
+	},
+	grey = {
+		torso = "#5B5F66",
+		head = "#767B83",
+		limb = "#767B83",
+		limbFar = "#555960",
+		joint = "#3E4147",
+		jointFar = "#2F3236",
+		foot = "#3A3D42",
+		footFar = "#2B2D31",
+	},
 }
+Look.PALETTE_ORDER = { "wood", "grey" } -- the Color button's cycle; the first is the default
 
 -- Depth (z) of the left/right copies of the paired limbs
 Look.ARM_DEPTH = 0.64 -- beside the torso block, clear of the head (shoulder width ≈ 1.3)
@@ -68,7 +82,7 @@ export type Prim = {
 	kind: string, -- "ball" | "rod" | "box"
 	side: number, -- -1 far copy, +1 near copy, 0 on the centre plane
 	depth: number, -- z of the shape's centre
-	role: string, -- colour role, a PALETTE key: "torso" | "head" | "limb" | "joint" | "foot"
+	role: string, -- colour role, a palette key: "torso" | "head" | "limb" | "joint" | "foot"
 	-- body-local geometry: ball / box centre (ax, ay); rod from (ax, ay) to (bx, by)
 	ax: number,
 	ay: number,

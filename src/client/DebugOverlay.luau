@@ -1,6 +1,7 @@
 --!strict
 -- DebugOverlay: text readout of the simulation (timing, energy, momentum, joints,
 -- contacts, events). Refreshed a few times per second to keep string churn low.
+-- A developer tool: hidden at start (F2, or Dev -> Info, shows it); players get HelpPanel.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -52,6 +53,7 @@ function DebugOverlay.new(playerGui: Instance): DebugOverlay
 	label.Position = UDim2.fromOffset(8, 8)
 	label.Size = UDim2.fromOffset(0, 0)
 	label.Text = ""
+	label.Visible = false
 	local pad = Instance.new("UIPadding")
 	pad.PaddingLeft = UDim.new(0, 6)
 	pad.PaddingRight = UDim.new(0, 6)
@@ -59,7 +61,7 @@ function DebugOverlay.new(playerGui: Instance): DebugOverlay
 	pad.PaddingBottom = UDim.new(0, 4)
 	pad.Parent = label
 	label.Parent = gui
-	return setmetatable({ label = label, gui = gui, nextRefresh = 0, visible = true }, DebugOverlay)
+	return setmetatable({ label = label, gui = gui, nextRefresh = 0, visible = false }, DebugOverlay)
 end
 
 function DebugOverlay.setVisible(self: DebugOverlay, visible: boolean)
@@ -173,7 +175,7 @@ function DebugOverlay.update(self: DebugOverlay, sim: any, stats: Stats)
 	end
 	table.insert(
 		lines,
-		"play: A Arch  S Tuck (ground: crouch, release = jump)  W Let Go  Q/E Twist   debug: R reset  1-5 scene  V pose  T slow  G moon  P pause  N step  C contacts  B blind A/B  F2 hide"
+		"play: A Arch  S Tuck (ground: crouch, release = jump)  W Let Go  Q/E Twist   debug: R reset  1-5 scene  V pose  T slow  G moon  P pause  N step  C contacts  B blind A/B  H help  L colour  F2 hide"
 	)
 	self.label.Text = table.concat(lines, "\n")
 end

@@ -27,6 +27,7 @@ end)
 
 local Gym = ReplicatedStorage:WaitForChild("Gym")
 local Sim = require(Gym:WaitForChild("Sim"))
+local Look = require(Gym:WaitForChild("Look"))
 
 local RigRenderer = require(script:WaitForChild("RigRenderer"))
 local WorldRenderer = require(script:WaitForChild("WorldRenderer"))
@@ -35,6 +36,7 @@ local DebugOverlay = require(script:WaitForChild("DebugOverlay"))
 local DebugControls = require(script:WaitForChild("DebugControls"))
 local InputRouter = require(script:WaitForChild("InputRouter"))
 local SpeedIndicator = require(script:WaitForChild("SpeedIndicator"))
+local HelpPanel = require(script:WaitForChild("HelpPanel"))
 
 -- "player" control: Arch/Tuck/Let Go/Twist drive the body through the movement controller
 local sim = Sim.new(nil, "Hang", { control = "player" })
@@ -43,8 +45,11 @@ local view = workspace:FindFirstChild("GymView") or Instance.new("Folder")
 view.Name = "GymView"
 view.Parent = workspace
 
+-- the body's colours (Look.PALETTES); the Color button / L switches, kept across resets
+local paletteName = Look.PALETTE_ORDER[1]
+
 local worldView = WorldRenderer.new(sim, view)
-local rigView = RigRenderer.new(sim, view)
+local rigView = RigRenderer.new(sim, view, paletteName)
 local camera = CameraController.new()
 local overlay = DebugOverlay.new(playerGui)
 local speed = SpeedIndicator.new(playerGui)
@@ -56,7 +61,7 @@ local function rebuildViews()
 	worldView:destroy()
 	rigView:destroy()
 	worldView = WorldRenderer.new(sim, view)
-	rigView = RigRenderer.new(sim, view)
+	rigView = RigRenderer.new(sim, view, paletteName)
 	local x, y = Sim.bodyPose(sim.rig.torso, 1)
 	camera:snap(Vector3.new(x, y, 0))
 end
@@ -67,6 +72,7 @@ local function resetScene()
 end
 
 local input = InputRouter.new(playerGui, { onReset = resetScene })
+local help = HelpPanel.new(playerGui, input.touchGui ~= nil)
 
 local controls = DebugControls.bind(sim, {
 	reset = resetScene,
@@ -84,6 +90,14 @@ local controls = DebugControls.bind(sim, {
 		if sim.paused then
 			Sim.stepOnce(sim)
 		end
+	end,
+	toggleHelp = function()
+		help:setVisible(not help.visible)
+	end,
+	cyclePalette = function()
+		local order = Look.PALETTE_ORDER
+		paletteName = order[(table.find(order, paletteName) or 0) % #order + 1]
+		rigView:setPalette(paletteName)
 	end,
 }, playerGui)
 
@@ -118,6 +132,7 @@ RunService:BindToRenderStep("GymSim", Enum.RenderPriority.Input.Value + 1, funct
 	local x, y = Sim.bodyPose(sim.rig.torso, alpha)
 	camera:update(Vector3.new(x, y, 0), dt)
 	speed:update(sim.tuning.timeScale)
+	help:update(if sim.controller then sim.controller.mode else "air", input.device, controls.note)
 	debug.profileend()
 	local t2 = os.clock()
 
@@ -161,5 +176,5 @@ RunService:BindToRenderStep("GymSim", Enum.RenderPriority.Input.Value + 1, funct
 end)
 
 print(
-	"[GymClient] P1.2 movement running. Play: A/← Arch, S/↓ Tuck (on the ground: crouch, release to jump), W/↑ Let Go, Q/E Twist. Debug: R reset, 1-5 scene, V pose override, T slow-mo, G moon, P pause, N step, C contacts, B blind A/B (Shift+B reveal), F2 overlay."
+	"[GymClient] P1.2 movement running. Play: A/← Arch, S/↓ Tuck (on the ground: crouch, release to jump), W/↑ Let Go, Q/E Twist. H help card, L colour. Debug: R reset, 1-5 scene, V pose override, T slow-mo, G moon, P pause, N step, C contacts, B blind A/B (Shift+B reveal), F2 numbers overlay."
 )

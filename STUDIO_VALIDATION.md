@@ -41,17 +41,23 @@ print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- exp
 | Tuck (hold) — on the ground: crouch, release to jump | S or ↓ | RT (analog) | TUCK (left) |
 | Arch + Tuck = Pike | both | both | both thumbs |
 | Let Go | W or ↑ | B | LET GO |
-| Grab *(counted, no effect until P1.3)* | Space or J | A | GRAB |
+| Grab *(counted, no effect until P1.3; the touch button is dimmed)* | Space or J | A | GRAB |
 | Twist left / right (hold; both = hold the angle) | Q / E | LB / RB | ◄ / ► |
 | Reset | R | Y | Reset button (top right) |
 
-**Debug:** 1–5 scene · V pose override (holds a named pose instead of your input: Neutral → Tuck → Pike → Arch → Crouch → Limp → back to your input) · T slow-mo 1 / 0.5 / 0.25 / 0.1 · G moon gravity · P pause · N single step · C contact markers · **B blind A/B switch, Shift+B reveal (§4a)** · F2 overlay. The same actions are buttons at the top right (the A/B button switches only).
+**On screen (controls pass):**
+- A **help card** at the bottom says what to do right now (on the bar, in the air, on your feet, fallen) and names the controls of the device you used last: keys, gamepad buttons, or the touch buttons. **H** or the **Help** button hides and shows it.
+- Each touch button has a short hint under its name (ARCH "open · reach", TUCK "curl · crouch", ◄ ► "twist", LET GO "drop the bar"). GRAB is dimmed: it does nothing until catching arrives in P1.3.
+- Top right: **Reset**, **Scene** (shows the scene you're in), **Slow**, **Moon**, **Color** (wood / grey body), **Help**, and **Dev**, which opens a second row of developer tools: **Pose**, **Pause**, **Step**, **Info** (the numbers overlay) and **A/B**.
+- The numbers overlay is hidden at start: **F2** or **Dev → Info** shows it. The slow-mo label sits at the top left.
+
+**Debug keys:** 1–5 scene · V pose override (holds a named pose instead of your input: Neutral → Tuck → Pike → Arch → Crouch → Limp → back to your input) · T slow-mo 1 / 0.5 / 0.25 / 0.1 · G moon gravity · P pause · N single step · C contact markers · **B blind A/B switch, Shift+B reveal (§4a)** · F2 numbers overlay · H help card · L body colour (wood / grey).
 
 **Back flip (standing):** hold S to crouch, then press A, either while still holding S or up to about 0.3 s after letting go. Let go of S to jump, press S in the air to tuck, and let go a moment before landing. The backward spin comes from the takeoff: pressing A later in the air only opens the body, since nothing in the air can start a rotation.
 
 **Back flip (bar):** Arch on the way down, Tuck through the bottom, let go on the way up, keep tucking, open before landing.
 
-The overlay's `move` line shows the mode (grip / air / ground / fallen), facing, twist angle and half twists, spin rate, crouch depth, swing rate and the last event; the `input` line shows what the simulation receives.
+The overlay (F2) `move` line shows the mode (grip / air / ground / fallen), facing, twist angle and half twists, spin rate, crouch depth, swing rate and the last event; the `input` line shows what the simulation receives.
 
 ## 3. What to check (per scene)
 
@@ -107,7 +113,7 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
 Metrics can't settle this; it is a feel question, so it is tested blind. **The default stays 6 until this test is done.** At session start, A and B are randomly assigned `motorHertz` 6 and 8. The overlay shows only the letter. The setting survives Reset (R), scene changes, moon and slow motion, so you can move around freely.
 
 1. Press Play. Leave `motorHertz` alone in Properties: the A/B sets it.
-2. Press **B** once (overlay: `blind A/B: now A`).
+2. Press **B** once (the help card and the overlay show `blind A/B: now A`).
 3. Play the same routine on A for ~3 minutes:
    - Hang (1): pump up, let go, tuck.
    - Stand (5): crouch-jump and land; try an Arch takeoff.
@@ -140,7 +146,8 @@ Round 3 (after the Arch changes; PLAYTEST_P1_2.md, round 2):
 6. **Slow-mo indicator:** clear, and not in the way?
 7. **Motor A/B:** redo §4a properly blind, and send the reveal line (round 2's "preferred B" couldn't be counted).
 8. **Pumping, twist, moon, slow motion, tuck:** still as good as round 2? Tests guard them, but say if anything feels different.
-9. **Character look (new body proportions):** the body should look slimmer and more human (one rectangular torso block, head on a neck, slim limbs with darker joint balls, clear feet; brown wood) with **no change in movement**. Check it standing, jumping, tucked, arched and back-flipping, twisting, swinging, at release, landing, and on the moon. Report any pose where parts look wrong. With arms overhead, the near arm passing in front of the head from the side is normal; it no longer goes *through* the head.
+9. **Character look (new body proportions):** the body should look slimmer and more human (one rectangular torso block, head on a neck, slim limbs with darker joint balls, clear feet; brown wood) with **no change in movement**. Check it standing, jumping, tucked, arched and back-flipping, twisting, swinging, at release, landing, and on the moon. Report any pose where parts look wrong. With arms overhead, the near arm passing in front of the head from the side is normal; it no longer goes *through* the head. Try **Color** (or L) for the grey body and say which you prefer.
+10. **Controls (help card, button hints):** without reading any doc, is it clear what to do in each situation (on the bar, in the air, on your feet, after a fall)? Is any wording confusing? On a phone: does the help card ever cover the body, do the touch buttons still respond when you tap right on their text, and is anything cut off at the edges? **Help** (or H) hides the card if it gets in the way.
 
 ## 7. For a Claude session with Studio MCP on your computer
 

@@ -1,7 +1,7 @@
 --!strict
 -- Look tests (P1.2 round 3): the drawn body's proportions are presentation only, stay inside
 -- the physics collision shapes (so contacts still look right), and don't intersect themselves;
--- the torso is one block, and every shape's colour is in the hex palette.
+-- the torso is one block, and every shape's colour is in each hex palette.
 
 return function(T: any)
 	local Sim = T.gym("Sim")
@@ -219,14 +219,19 @@ return function(T: any)
 		T.expect(Sim.checksum(sim) == Sim.checksum(twin), "building the look changed the simulation")
 	end)
 
-	T.test("every drawn shape has a colour in the palette, written as a hex code", function()
-		for key, hex in Look.PALETTE :: { [string]: string } do
-			T.expect(string.match(hex, "^#%x%x%x%x%x%x$") ~= nil, `PALETTE.{key} = "{hex}" is "#RRGGBB"`)
-		end
+	T.test("every drawn shape has a colour in every palette, written as hex codes", function()
 		local sim = Sim.new(nil, "Stand", { control = "player" })
-		local P: { [string]: string } = Look.PALETTE :: any
-		for _, p in Look.build(sim.rig) do
-			T.expect(P[p.role] ~= nil, `{p.name}: colour role "{p.role}" in the palette`)
+		local prims = Look.build(sim.rig)
+		local P: { [string]: { [string]: string } } = Look.PALETTES :: any
+		for _, name in Look.PALETTE_ORDER do
+			local palette = P[name]
+			T.expect(palette ~= nil, `palette "{name}" exists`)
+			for key, hex in palette do
+				T.expect(string.match(hex, "^#%x%x%x%x%x%x$") ~= nil, `{name}.{key} = "{hex}" is "#RRGGBB"`)
+			end
+			for _, p in prims do
+				T.expect(palette[p.role] ~= nil, `{name}: colour role "{p.role}" ({p.name}) in the palette`)
+			end
 		end
 	end)
 end
