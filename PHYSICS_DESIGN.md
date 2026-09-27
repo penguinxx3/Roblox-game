@@ -352,6 +352,10 @@ Torques about the grip are applied as a whole-body rotation (the same angular ac
   - **Muscle-driven motion depends on `strengthGravityScaling`.** At the default 1 (P1.1 behaviour) strength follows gravity: every gravity-driven motion keeps its shape and is √6.06 ≈ 2.46× slower. A standing jump rises the same (1.95 vs 1.69 studs) with 2.7× the airtime (1.40 vs 0.52 s); the reference's moon jump shows ~1.5 s of airtime. At 0, Earth strength on the moon: real-moon physics, a 7.0-stud jump with 2.9 s of airtime.
   - Holding a tuck: with spins that come from gravity-driven swings (release from the bar), the default holds the tuck exactly as well as fixed strength (spin gain ×1.99 vs ×2.00), because spin rates shrink with √g too. Only a launch spin that is *not* gravity-scaled (the Tumble test scene's fixed 7 rad/s) overpowers the weaker moon muscles.
   - Decision: the multiplier is correct and is left as is; strength keeps following gravity by default (matches the reference's timing, and the moon plays like Earth in slow motion); `strengthGravityScaling` is the knob if you want real-moon jumps.
+- **Player-validated (P1.2 playtest): moon gravity and slow motion are liked features; keep their behaviour.** Movement tuning must not change them unless a concrete technical issue is found. Two `Movement.spec` tests guard them:
+  - Slow motion replays bar and ground movement, on Earth and on the moon, bit-identically in simulation time at 0.5 / 0.25 / 0.1, taking exactly 2 / 4 / 10× the real time.
+  - Moon mode keeps its feel: swing period ×2.46, the same swing decay, jump height 1.14× and airtime ≈ 2.7× Earth. The defaults are fixed (0.165, strength follows gravity), and the settings survive Reset.
+  - Both tests pass on the playtested build and the current one (PLAYTEST_P1_2.md).
 - **Interpolation:** the renderer blends the previous and current body poses by alpha.
 - **Input** (as built, `Input.luau`): the client sends one device-independent frame per render frame (`Sim.setInput`).
   - held inputs (arch, tuck, twist left/right) apply to every step in a frame

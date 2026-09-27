@@ -15,7 +15,7 @@ It must feel fluid, responsive and satisfying **on a phone first**; PC and contr
 2. **Skill is timing.** The release moment and the grab moment are the player's decisions. Catching is never automatic.
 3. **Momentum never breaks.** Release and catch continue the motion; they don't interrupt it (reference §3.1).
 4. **Mobile first.** Two thumbs, no steering: the side-view plane removes the need for a joystick.
-5. **Worth clipping.** Slow-mo, moon gravity, catch chains, replays and clean recording are core, not extras.
+5. **Worth clipping.** Slow-mo, moon gravity, catch chains, replays and clean recording are core, not extras. (P1.2 playtest: moon gravity and slow motion were the tester's favourites. Their behaviour is kept and guarded by tests while the movement is tuned.)
 6. **Social sandbox, later.** Multiplayer is designed for from day one, built after the feel is proven.
 
 ## 3. Core loop (prototype scope)

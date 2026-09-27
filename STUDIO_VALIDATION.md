@@ -18,7 +18,7 @@ Press **Play** (F5). In the **Output** window you should see:
 
 | Expect | Meaning |
 |---|---|
-| `[GymSelfTest] ... 56 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
+| `[GymSelfTest] ... 58 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
 | `[GymClient] P1.2 movement running. Play: A/← Arch, ...` | The client started in player control |
 | `[GymClient] runtime check OK: scene=Hang steps=... avgSim=...ms ...` | The simulation is stepping and rendering after 3 s |
 | No red errors, no `warn` lines from `[GymClient]` | |
@@ -28,7 +28,7 @@ Also check `ReplicatedStorage.GymTests` in Explorer (server view): `SelfTestStat
 **Full suite** (includes the slow soaks, ~30–60 s). From the **command bar**, in Edit mode or on the server during Play:
 
 ```lua
-print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (60 passed)
+print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (62 passed)
 ```
 
 ## 2. Controls
@@ -101,17 +101,18 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
 
 ## 4a. Blind A/B: motor 6 vs 8 Hz
 
-Metrics can't settle this; it is a feel question, so it is tested blind. At session start, A and B are randomly assigned `motorHertz` 6 and 8. The overlay shows only the letter.
+Metrics can't settle this; it is a feel question, so it is tested blind. **The default stays 6 until this test is done.** At session start, A and B are randomly assigned `motorHertz` 6 and 8. The overlay shows only the letter. The setting survives Reset (R), scene changes, moon and slow motion, so you can move around freely.
 
 1. Press Play. Leave `motorHertz` alone in Properties: the A/B sets it.
 2. Press **B** once (overlay: `blind A/B: now A`).
-3. Play the same short routine on A for ~2 minutes:
-   - Hang: pump up, let go, tuck.
-   - Stand: jump and land.
-   - Tumble: tuck and open in the air.
+3. Play the same routine on A for ~3 minutes:
+   - Hang (1): pump up, let go, tuck.
+   - Stand (5): crouch-jump and land; try an Arch takeoff.
+   - Tumble (3): tuck and open in the air.
+   - Repeat one or two of these with **moon (G)** on, and once in **slow motion (T)**, then set them back.
 4. Press **B** (now B) and play the same routine on B. Switch back and forth 2–3 more times; don't try to guess the values.
-5. Write down which letter felt better and why (responsiveness, smoothness, control, flips) **before** revealing.
-6. Press **Shift+B** to reveal (overlay and Output: `[GymAB] reveal: A = motorHertz …`). Send the note and the reveal line.
+5. Write down which letter felt better and why (responsiveness, smoothness, control, flips; on Earth, on the moon, in slow motion) **before** revealing.
+6. Press **Shift+B** to reveal. The overlay and Output show `[GymAB] reveal: A = motorHertz …, B = … (played A x min, B y min, n switches)`. A test with under a minute on either variant is flagged as short. Send the note and the reveal line.
 
 Best with 2–3 people, each with a fresh Play session (a new random mapping). What `motorHertz` changes after the feedback round:
 - **In the air:** Arch, Neutral and the landing reflex. The tuck squeeze is 10 Hz either way.
@@ -133,7 +134,8 @@ Scores out of 10 per item, as in round 1, help compare.
 5. **Arch:** now that it has clear jobs (pump on the downswing, open to slow a spin, back-flip takeoff), does it make sense?
 6. **Motor A/B:** result of §4a.
 7. **Smoothness:** anything that looks wobbly or snappy since this round (the tuck squeeze and firmer bar hips trade a little smoothness for responsiveness)?
-8. **Twist, moon, joints, contacts, slow motion:** anything that looks wrong.
+8. **Moon and slow motion:** still as enjoyable as in the first playtest? They should behave exactly as before; tests guard it, but say if anything feels different.
+9. **Twist, joints, contacts:** anything that looks wrong.
 
 ## 7. For a Claude session with Studio MCP on your computer
 

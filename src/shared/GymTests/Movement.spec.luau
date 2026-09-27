@@ -871,6 +871,131 @@ return function(T: any)
 		T.expect(script() == script(), "same input script gave different results")
 	end)
 
+	-- Moon gravity and slow motion were the playtester's favourite features (PLAYTEST_P1_2.md).
+	-- These two tests guard their behaviour while the movement is tuned: changing it must be a
+	-- deliberate decision, not a side effect.
+	T.test(
+		"slow motion keeps player movement identical: bar and ground, Earth and moon, 0.5 / 0.25 / 0.1",
+		function()
+			-- a scripted routine keyed to simulation time, run through Sim.advance at 60 fps
+			local function routine(s: any, i: any)
+				local t = s.time
+				if s.scenario == "Hang" then
+					local ms = Rig.massState(s.rig)
+					local rising = ms.cx * ms.vx > 0
+					if t < 3 then
+						i.tuck = if rising then 1 else 0
+						i.arch = 1 - i.tuck
+					else
+						if i.letGoPresses == 0 and rising then
+							i.letGoPresses = 1
+						end
+						i.tuck, i.arch = if t < 3.6 then 1 else 0, 0
+						i.twistRight = t > 3.3 and t < 3.8
+					end
+				else
+					i.tuck = if t > 1 and t < 1.6 then 1 else 0
+					i.arch = if t > 1.55 and t < 1.8 then 1 else 0
+				end
+			end
+			local function play(scene: string, moon: number, scale: number): (string, number)
+				local sim = player(scene, { moonGravity = moon, timeScale = scale })
+				local inp = Input.new()
+				local target = math.floor(5 / sim.h + 0.5)
+				local sum = ""
+				routine(sim, inp)
+				Sim.setInput(sim, inp)
+				sim.onStep = function(s)
+					if s.stepCount == target then
+						sum = Sim.checksum(s)
+					end
+					routine(s, inp)
+					Sim.setInput(s, inp)
+				end
+				local frames = 0
+				while sim.stepCount < target do
+					Sim.advance(sim, 1 / 60)
+					frames += 1
+				end
+				return sum, frames
+			end
+			for _, scene in { "Hang", "Stand" } do
+				for _, moon in { 0, 1 } do
+					local ref, refFrames = play(scene, moon, 1)
+					for _, scale in { 0.5, 0.25, 0.1 } do
+						local sum, frames = play(scene, moon, scale)
+						local label = `{scene} moon={moon} timeScale {scale}`
+						T.expect(sum == ref, `slow motion changed the movement: {label}`)
+						T.near(frames / refFrames, 1 / scale, 0.02 / scale, `real time: {label}`)
+					end
+				end
+			end
+		end
+	)
+
+	T.test(
+		"moon mode keeps its feel: same swing and jump, about 2.46× slower; settings survive Reset",
+		function()
+			-- defaults the feature is made of
+			local d = Tuning.new()
+			T.expect(d.moonGravity == 0 and d.moonGravityScale == 0.165, "moon defaults")
+			T.expect(
+				d.strengthGravityScaling == 1 and d.timeScale == 1,
+				"strength follows gravity; normal speed"
+			)
+			-- the hanging swing: the same swing, played √(1/0.165) ≈ 2.46× slower
+			local function passiveSwing(moon: number): (number, number)
+				local sim = player("Hang", { moonGravity = moon })
+				local inp = Input.new()
+				local peaks, peak, last, crossings, t0, t3 = {}, 0, 0, 0, 0, 0
+				while #peaks < 8 do
+					Sim.setInput(sim, inp)
+					Sim.stepOnce(sim)
+					local ms = Rig.massState(sim.rig)
+					peak = math.max(peak, math.abs(math.deg(math.atan2(ms.cx, BAR - ms.cy))))
+					local sign = if ms.vx > 0 then 1 else -1
+					if last ~= 0 and sign ~= last then
+						crossings += 1
+						table.insert(peaks, peak)
+						peak = 0
+						if crossings == 1 then
+							t0 = sim.time
+						elseif crossings == 4 then
+							t3 = sim.time
+						end
+					end
+					last = sign
+				end
+				return (t3 - t0) / 3, peaks[8]
+			end
+			local ePeriod, ePeak = passiveSwing(0)
+			local mPeriod, mPeak = passiveSwing(1)
+			T.note("half swing Earth / moon (s)", string.format("%.2f / %.2f", ePeriod, mPeriod))
+			T.note("peak after 8 half swings Earth / moon", string.format("%.1f° / %.1f°", ePeak, mPeak))
+			T.near(mPeriod / ePeriod, math.sqrt(1 / 0.165), 0.08, "moon swing period ratio")
+			T.near(mPeak, ePeak, 3, "moon swing keeps its height (same decay per swing)")
+			-- the jump: about the same height, much longer in the air, lands standing
+			local e = jump(nil, 0.6)
+			local m = jump({ moonGravity = 1 }, 1.4, 4)
+			T.note("jump rise ratio moon/Earth", m.rise / e.rise)
+			T.note("jump airtime ratio moon/Earth", m.airtime / e.airtime)
+			T.near(m.rise / e.rise, 1.14, 0.12, "moon jump height (as playtested: 1.14× Earth)")
+			T.near(m.airtime / e.airtime, 2.75, 0.3, "moon jump airtime (as playtested: ≈2.7× Earth)")
+			T.expect(m.finalMode == "ground", `moon jump should land standing: {m.events}`)
+			-- live settings survive Reset and scene changes (moon, slow motion, the blind A/B's motor)
+			local sim = player("Hang")
+			Sim.setParam(sim, "moonGravity", 1)
+			Sim.setParam(sim, "timeScale", 0.25)
+			Sim.setParam(sim, "motorHertz", 8)
+			Sim.reset(sim)
+			Sim.reset(sim, "Stand")
+			T.expect(Tuning.effectiveGravity(sim.tuning) == 35 * 0.165, "moon kept after Reset")
+			T.expect(sim.tuning.timeScale == 0.25, "slow motion kept after Reset")
+			T.expect(sim.tuning.motorHertz == 8, "motor setting kept after Reset")
+			T.expect(sim.world.params.gravityY == -35 * 0.165, "the rebuilt world uses moon gravity")
+		end
+	)
+
 	T.test(
 		"moon gravity: exact multiplier; ballistic heights ×6.06; muscle jumps follow strengthGravityScaling",
 		function()

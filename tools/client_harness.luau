@@ -407,7 +407,12 @@ do
 		(a == "6" and b == "8") or (a == "8" and b == "6"),
 		`Shift+B reveals the mapping (A={tostring(a)}, B={tostring(b)})`
 	)
-	check(freshOverlay():find("now B", 1, true) ~= nil, "reveal keeps the current variant (B)")
+	local revealed = freshOverlay()
+	check(revealed:find("now B", 1, true) ~= nil, "reveal keeps the current variant (B)")
+	check(
+		revealed:find("played A %d+%.%d min, B %d+%.%d min, 2 switches") ~= nil,
+		"reveal reports time on each variant and the number of switches"
+	)
 end
 
 -- Gameplay input (P1.2): keyboard, gamepad and touch through InputRouter --------------------

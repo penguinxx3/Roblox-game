@@ -62,16 +62,16 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 
 | Layer | Result |
 |---|---|
-| 1. Headless tests (`lune run tests/run.luau`) | **60 / 60** (the 40 P1.1 tests, the auto-added `Stand` scene check, 19 movement tests) |
-| 2. Built-place self-test (`--full`) | **60 / 60** through Roblox-style instance `require` (quick mode: 56 passed, 4 slow ones skipped) |
-| 3. Client harness | **70 / 70** checks: 5 scenes, every debug control including the blind A/B (hidden labels, switch by key and button, Shift+B reveal), and gameplay input: keyboard holds and presses, gamepad analog trigger and buttons, touch layout (two thumbs at once, touch-down Let Go), crouch-and-release jump that lands, twist through a half-twist snap with continuous part motion |
+| 1. Headless tests (`lune run tests/run.luau`) | **62 / 62** (the 40 P1.1 tests, the auto-added `Stand` scene check, 21 movement tests) |
+| 2. Built-place self-test (`--full`) | **62 / 62** through Roblox-style instance `require` (quick mode: 58 passed, 4 slow ones skipped) |
+| 3. Client harness | **71 / 71** checks: 5 scenes, every debug control including the blind A/B (hidden labels, switch by key and button, Shift+B reveal with time played per variant and switch count), and gameplay input: keyboard holds and presses, gamepad analog trigger and buttons, touch layout (two thumbs at once, touch-down Let Go), crouch-and-release jump that lands, twist through a half-twist snap with continuous part motion |
 | Static analysis (luau-lsp, strict) | **0 errors** |
 | Formatting (StyLua) | clean |
 | 4. In-Studio self-test and look/feel | **pending** (STUDIO_VALIDATION.md §P1.2) |
 
 (selene still can't download Roblox's API dump offline; luau-lsp covers typing.)
 
-**P1.2 movement tests (`Movement.spec`, 19), mapped to what was asked.** The results are as of feedback round 1; the numbers first reported for P1.2 are in the notes below the table.
+**P1.2 movement tests (`Movement.spec`, 21), mapped to what was asked.** The results are as of feedback round 1; the numbers first reported for P1.2 are in the notes below the table.
 
 | Requirement | Test | Result |
 |---|---|---|
@@ -92,6 +92,8 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 | Pumping (A4): no drain, from nothing to a giant | pumping: held shapes don't drain the swing; from a still hang… | loss per cycle at 90°: relaxed / Tuck / Pike 2.3° / 4.1° / 5.6° (extra over relaxed must be ≤ 4° / ≤ 5°; was 3.7° / 6.8° / 10.7°). `hangStartAngle` 0 stays within 0.8°. From a still hang: 90° at 11.9 s (≤ 15), **over the top at 15.2 s** (≤ 20; P1.2 as first tested stalled at ≈ 107°) |
 | Swing limits | swing limits… | the energy cap (straight body passing the bottom at `maxSwingSpeed`) holds a 6 rad/s cap to **1.08× its energy**, with `swingAssist` 2 and with pumping alone (bound 1.1); grip friction 0.2 → 7° vs 58° after 8 s |
 | Moon | moon gravity… | g = 5.775 exactly; fixed-launch apex ×6.07 (expected 6.06); muscle jump (default) 2.00 studs / 1.47 s vs Earth 1.73 / 0.53; fixed strength 7.04 / 2.93 |
+| **Slow motion kept** (liked feature) | slow motion keeps player movement identical… | a scripted bar routine (pump, Let Go, tuck, twist) and a ground routine (crouch, Arch jump), Earth and moon, through `Sim.advance` at 60 fps: **bit-identical** at timeScale 0.5 / 0.25 / 0.1; real time 2 / 4 / 10× (±2%). Passes on the playtested build too |
+| **Moon kept** (liked feature) | moon mode keeps its feel… | half swing 1.14 → 2.80 s (×2.46 ± 0.08 required); height after 8 half swings 52.7° vs 53.1° (±3°); jump height 1.16× Earth (1.14 ± 0.12) and airtime 2.78× (2.75 ± 0.3), lands standing; defaults 0.165 / strength follows gravity; moon, slow motion and `motorHertz` survive Reset and scene changes. Playtested build: 2.81 s, 52.9°, 1.15×, 2.75× |
 | Smoothness | smoothing: targets move continuously | largest per-step target change 10.0° (default) vs 36.4° without smoothing |
 | Determinism | determinism: same inputs → bit-identical | pass |
 

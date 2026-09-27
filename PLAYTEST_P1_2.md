@@ -4,6 +4,32 @@ A friend playtested the P1.2 build in Roblox Studio. This file records what they
 
 Numbers come from `lune run tools/flip_bench.luau`, `lune run tools/smooth_bench.luau` and the `Movement.spec` tests (TESTING.md). "Before" is the build that was playtested (commit 15fdbb0).
 
+## What the tester liked: keep it
+
+**Moon gravity** (G) and **slow motion** (T) both felt cool and enjoyable. Rule from here on: movement tuning must not remove or substantially change them, unless a concrete technical issue is found.
+
+**Audit of round 1.** The playtested build (15fdbb0) and the round-1 build (3578c37) were measured with the same script. Neither feature changed:
+
+| | Playtested | Round 1 |
+|---|---|---|
+| Slow motion 0.5 / 0.25 / 0.1, bar and ground, Earth and moon | identical movement in simulation time, 2 / 4 / 10× real time | same |
+| Moon half swing (Earth 1.14 s) | 2.81 s | 2.80 s |
+| Moon swing height after 8 half swings (Earth ≈ 53°) | 52.9° | 53.1° |
+| Moon jump height / airtime vs Earth | 1.15× / 2.75× | 1.16× / 2.78× |
+| Moon, strength follows gravity (default) | on | on |
+
+The movement fixes of round 1 (arch takeoff, tuck, pumping) act the same way on the moon as on Earth. The moon Arch jump now keeps its height too, and the moon tuck spins up faster. Slow motion only changes how fast simulation time plays, and that code was not touched.
+
+**Guarded from now on.** Two tests in `Movement.spec` fail if a future change alters either feature:
+- *Slow motion keeps player movement identical:* a scripted routine on the bar and on the ground, Earth and moon, at 0.5 / 0.25 / 0.1. It must replay bit-identically and take 2 / 4 / 10× the real time.
+- *Moon mode keeps its feel:*
+  - the moon swing period is ×2.46 Earth's, with the same swing decay;
+  - the moon jump is 1.14× as high (±0.12) and ≈ 2.75× as long (±0.3), and lands standing;
+  - the defaults stay 0.165 with strength following gravity;
+  - moon, slow motion and the A/B's motor setting survive Reset and scene changes.
+
+Both tests pass on the playtested build and on the current one.
+
 ## Summary
 
 | Item | Score | What it was | Changed |
@@ -144,11 +170,11 @@ The last two rows are what the overall 3/10 was mostly about: flips from the bar
 
 ## Motor 6 vs 8
 
-No comparison yet, and automated metrics can't decide this; it is a feel question. Both values stay available, and a **blind A/B** is built in:
+The tester now understands what the setting does. The default stays **6 until a proper blind A/B is done**: automated metrics can't decide this, it is a feel question. Both values stay available, and a **blind A/B** is built in:
 - **B** switches between two hidden variants, A and B. At session start they are randomly assigned `motorHertz` 6 and 8.
-- **Shift+B** reveals which was which, in the overlay and in Output.
+- **Shift+B** reveals which was which, in the overlay and in Output. The reveal also reports how long each variant was played and how many times you switched. It flags a test that was too short to count.
 
-The procedure is in STUDIO_VALIDATION.md §4a.
+The procedure is in STUDIO_VALIDATION.md §4a. It includes a moon pass and a slow-motion pass, since those are the modes the tester enjoys most.
 
 What `motorHertz` still changes after this round:
 - **In the air:** Arch, Neutral and the landing reflex. The tuck squeeze is 10 Hz either way.

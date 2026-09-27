@@ -78,8 +78,22 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		B = AB_VALUES[if swapped then 1 else 2],
 	}
 	local abCurrent: string? = nil
+	-- how long each variant was played and how often it was switched, so the result shows
+	-- whether both got a fair try
+	local abTime = { A = 0, B = 0 }
+	local abSince, abSwitches = 0, 0
+	local function abLog()
+		if abCurrent then
+			local now = os.clock()
+			abTime[abCurrent :: string] += now - abSince
+			abSince = now
+		end
+	end
 	local function abSwitch()
+		abLog()
 		abCurrent = if abCurrent == "A" then "B" else "A"
+		abSince = os.clock()
+		abSwitches += 1
 		Sim.setParam(sim, AB_PARAM, abValue[abCurrent :: string])
 		state.note = `blind A/B: now {abCurrent}   (B switch, Shift+B reveal)`
 		print(`[GymAB] now {abCurrent}`)
@@ -88,7 +102,20 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		if abCurrent == nil then
 			return
 		end
-		local msg = `[GymAB] reveal: A = {AB_PARAM} {abValue.A}, B = {AB_PARAM} {abValue.B} (now {abCurrent})`
+		abLog()
+		local short = math.min(abTime.A, abTime.B) < 60
+		local msg = string.format(
+			"[GymAB] reveal: A = %s %g, B = %s %g (now %s; played A %.1f min, B %.1f min, %d switches)%s",
+			AB_PARAM,
+			abValue.A,
+			AB_PARAM,
+			abValue.B,
+			abCurrent :: string,
+			abTime.A / 60,
+			abTime.B / 60,
+			abSwitches,
+			if short then " - short test: play each for a few minutes" else ""
+		)
 		state.note = msg
 		print(msg)
 	end
