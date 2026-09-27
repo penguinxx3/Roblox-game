@@ -6,9 +6,10 @@
 -- Twist (P1.2) turns the whole drawn body about its long axis through the centre of mass
 -- (Pose3D), so the planar body can face toward or away from the camera mid-air.
 --
--- Look: our own style (not the reference's): a teal chest and pelvis block, white head and
--- limbs, dark feet, far-side limbs slightly darker for depth. The proportions come from
--- Look (shared, presentation only); the physics collision shapes are not drawn.
+-- Look: a wooden figure: one rectangular torso block, a head on a neck, slim limbs with
+-- darker joint balls, darker feet, far-side limbs a shade darker for depth. The proportions and
+-- the colours (Look.PALETTE, hex codes) come from Look (shared, presentation only); the physics
+-- collision shapes are not drawn.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -21,14 +22,14 @@ local Plane = require(script.Parent:WaitForChild("Plane"))
 local RigRenderer = {}
 RigRenderer.__index = RigRenderer
 
--- colour per Look role, for the near and far copies
-local COLORS: { [string]: { Color3 } } = {
-	torso = { Color3.fromRGB(38, 178, 164), Color3.fromRGB(38, 178, 164) },
-	pelvis = { Color3.fromRGB(28, 140, 130), Color3.fromRGB(28, 140, 130) },
-	skin = { Color3.fromRGB(245, 244, 238), Color3.fromRGB(245, 244, 238) },
-	limb = { Color3.fromRGB(245, 244, 238), Color3.fromRGB(196, 198, 204) },
-	foot = { Color3.fromRGB(60, 70, 84), Color3.fromRGB(44, 51, 62) },
-}
+local MATERIAL = Enum.Material.Wood -- SmoothPlastic for a plain finish
+
+-- A shape's colour: its role's palette entry; the far copy of a limb uses "<role>Far" if set.
+local function colorOf(p: Look.Prim): Color3
+	local P: { [string]: string } = Look.PALETTE
+	local hex = if p.side < 0 then P[p.role .. "Far"] or P[p.role] else P[p.role]
+	return Color3.fromHex(hex)
+end
 
 type Item = {
 	part: Part,
@@ -54,7 +55,7 @@ local function makePart(shape: Enum.PartType, color: Color3, parent: Instance): 
 	p.CanQuery = false
 	p.CanTouch = false
 	p.CastShadow = true
-	p.Material = Enum.Material.SmoothPlastic
+	p.Material = MATERIAL
 	p.Color = color
 	p.TopSurface = Enum.SurfaceType.Smooth
 	p.BottomSurface = Enum.SurfaceType.Smooth
@@ -75,8 +76,7 @@ function RigRenderer.new(sim: any, parent: Instance): RigRenderer
 	}, RigRenderer)
 
 	for _, p in Look.build(sim.rig) do
-		local colors = COLORS[p.role]
-		local color = if p.side < 0 then colors[2] else colors[1]
+		local color = colorOf(p)
 		local part: Part
 		if p.kind == "ball" then
 			part = makePart(Enum.PartType.Ball, color, folder)

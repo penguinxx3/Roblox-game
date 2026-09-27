@@ -243,7 +243,7 @@ src/client/       Input/InputRouter · Input/TouchControls · Render/RigRenderer
 
 All of this is defined as data in `Scenarios.luau`.
 
-**Prototype character:** a mannequin in our own palette, drawn on the 6-body skeleton. Its proportions come from `Look`, separate from the collision shapes (P1.2 round 3): a teal chest block over a darker pelvis block, a white head on a neck, slim white limbs with joint balls and hands (far-side limbs darker), and dark block feet. The drawing stays inside the collision shapes (tested), so contacts look right; physics is unchanged (bit-identical). There are no avatars, Humanoid or Roblox character yet.
+**Prototype character:** a wooden mannequin drawn on the 6-body skeleton. Its proportions come from `Look`, separate from the collision shapes (P1.2 round 3): one rectangular torso block from hip line to shoulder line, a head on a neck, slim limbs with darker joint balls and hands (far-side limbs darker), and block feet, all in the Wood material. The colours are hex codes in one table, `Look.PALETTE` (the renderer reads them with `Color3.fromHex`); the torso is a shade darker than the limbs so an arm in front of it stays readable. The drawing stays inside the collision shapes (tested), so contacts look right; physics is unchanged (bit-identical). There are no avatars, Humanoid or Roblox character yet.
 
 **Build:** `rojo build -o build/BarGym.rbxl`. Open it in Studio and press Play. Optionally use `rojo serve` for live sync. See README for the test commands.
 

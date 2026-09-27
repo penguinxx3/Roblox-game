@@ -5,25 +5,40 @@
 -- the renderer drew those collision shapes one-to-one: a round capsule torso whose end caps
 -- swallowed the shoulders and hips, thick limbs, a stub foot, and a head that overlapped the
 -- torso and, in depth, the arms. This module gives the drawing its own proportions:
---   * a flat chest block and a narrower pelvis block ending at the shoulder and hip lines
+--   * one flat rectangular torso block from the hip line to the shoulder line
 --   * a smaller head on a neck, its top where the physics head's top is
 --   * slimmer limbs with joint balls and hands
---   * arms beside the chest in depth, legs at hip width: arms can't pass through the head
+--   * arms beside the torso in depth, legs at hip width: arms can't pass through the head
 --   * box feet whose sole is the physics foot's sole
 -- Every shape stays inside its body's collision shapes (Look.spec checks this), so contacts
 -- still look right. The simulation never reads this module: physics is unchanged.
+-- The colours are here too (PALETTE): hex codes, to tweak freely.
 
 local Rig = require(script.Parent.Rig)
 
 local Look = {}
 
+-- Colours: a wooden figure. Hex codes ("#RRGGBB"); the renderer reads them with
+-- Color3.fromHex, so change any of them here. "Far" is the copy of an arm or leg on the side
+-- away from the camera, a shade darker so the two sides read apart.
+Look.PALETTE = {
+	torso = "#94603A", -- the torso block; a shade darker than the limbs, so an arm in front reads
+	head = "#B98352", -- head and neck
+	limb = "#B98352", -- upper arms, forearms, thighs, shanks, hands
+	limbFar = "#8A5C33",
+	joint = "#6E4222", -- shoulder, elbow, hip, knee and ankle balls
+	jointFar = "#57341B",
+	foot = "#5E3A1F",
+	footFar = "#4A2D17",
+}
+
 -- Depth (z) of the left/right copies of the paired limbs
-Look.ARM_DEPTH = 0.64 -- beside the chest, clear of the head (shoulder width ≈ 1.3)
+Look.ARM_DEPTH = 0.64 -- beside the torso block, clear of the head (shoulder width ≈ 1.3)
 Look.LEG_DEPTH = 0.24 -- hip width
 
--- Torso: two blocks along the hip -> shoulder line (fractions of that length), a neck, a head
-Look.CHEST = { from = 0.47, to = 1.0, thick = 0.8, width = 1.0 }
-Look.PELVIS = { from = -0.02, to = 0.5, thick = 0.72, width = 0.82 }
+-- Torso: one block along the hip -> shoulder line (fractions of that length; `thick` across in
+-- the motion plane, `width` in depth), then a neck and a head
+Look.TORSO = { from = 0.0, to = 1.0, thick = 0.78, width = 0.94 }
 Look.NECK = { from = -0.05, to = 0.45, radius = 0.1 } -- studs past the shoulder line
 Look.HEAD_RADIUS = 0.36
 
@@ -53,7 +68,7 @@ export type Prim = {
 	kind: string, -- "ball" | "rod" | "box"
 	side: number, -- -1 far copy, +1 near copy, 0 on the centre plane
 	depth: number, -- z of the shape's centre
-	role: string, -- colour role: "torso" | "pelvis" | "skin" | "limb" | "foot"
+	role: string, -- colour role, a PALETTE key: "torso" | "head" | "limb" | "joint" | "foot"
 	-- body-local geometry: ball / box centre (ax, ay); rod from (ax, ay) to (bx, by)
 	ax: number,
 	ay: number,
@@ -145,44 +160,40 @@ function Look.build(rig: Rig.Rig): { Prim }
 		local name = seg.name
 		if name == "torso" then
 			local L = x1 - x0 -- hip -> shoulder
-			local C, P, N = Look.CHEST, Look.PELVIS, Look.NECK
+			local B, N = Look.TORSO, Look.NECK
 			table.insert(
 				out,
-				box("chest", seg, 0, 0, "torso", x0 + C.from * L, x0 + C.to * L, C.thick, C.width)
-			)
-			table.insert(
-				out,
-				box("pelvis", seg, 0, 0, "pelvis", x0 + P.from * L, x0 + P.to * L, P.thick, P.width)
+				box("torso", seg, 0, 0, "torso", x0 + B.from * L, x0 + B.to * L, B.thick, B.width)
 			)
 			table.insert(out, rod("neck", seg, 0, 0, x1 + N.from, x1 + N.to, N.radius))
-			out[#out].role = "skin"
+			out[#out].role = "head"
 			-- the head's top stays where the physics head's top is; the smaller head sits
 			-- further from the shoulders, leaving room for the neck and the arms
 			local headX = rig.headLocalX + Rig.RADIUS.head - Look.HEAD_RADIUS
-			table.insert(out, ball("head", seg, 0, 0, "skin", headX, Look.HEAD_RADIUS))
+			table.insert(out, ball("head", seg, 0, 0, "head", headX, Look.HEAD_RADIUS))
 		elseif seg.paired then
 			for _, side in { -1, 1 } do
 				local J = Look.JOINT_RADIUS
 				if name == "upperArm" then
 					local z = side * Look.ARM_DEPTH
-					table.insert(out, ball("shoulder", seg, side, z, "limb", x0, J.shoulder))
+					table.insert(out, ball("shoulder", seg, side, z, "joint", x0, J.shoulder))
 					table.insert(out, rod("upperArm", seg, side, z, x0, x1, Look.RADIUS.upperArm))
-					table.insert(out, ball("elbow", seg, side, z, "limb", x1, J.elbow))
+					table.insert(out, ball("elbow", seg, side, z, "joint", x1, J.elbow))
 				elseif name == "forearm" then
 					local z = side * Look.ARM_DEPTH
 					table.insert(out, rod("forearm", seg, side, z, x0, x1, Look.RADIUS.forearm))
 					table.insert(out, ball("hand", seg, side, z, "limb", x1, J.hand))
 				elseif name == "thigh" then
 					local z = side * Look.LEG_DEPTH
-					table.insert(out, ball("hip", seg, side, z, "limb", x0, J.hip))
+					table.insert(out, ball("hip", seg, side, z, "joint", x0, J.hip))
 					table.insert(out, rod("thigh", seg, side, z, x0, x1, Look.RADIUS.thigh))
-					table.insert(out, ball("knee", seg, side, z, "limb", x1, J.knee))
+					table.insert(out, ball("knee", seg, side, z, "joint", x1, J.knee))
 				elseif name == "shank" then
 					-- the collision shape stops short of the ankle; the drawing reaches it
 					local z = side * Look.LEG_DEPTH
 					local ankle = x1 + Rig.SHANK_TRIM
 					table.insert(out, rod("shank", seg, side, z, x0, ankle, Look.RADIUS.shank))
-					table.insert(out, ball("ankle", seg, side, z, "limb", ankle, J.ankle))
+					table.insert(out, ball("ankle", seg, side, z, "joint", ankle, J.ankle))
 				elseif name == "foot" then
 					local z = side * Look.LEG_DEPTH
 					local F = Look.FOOT

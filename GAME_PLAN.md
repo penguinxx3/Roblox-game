@@ -122,7 +122,7 @@ Grab and Let Go are never both valid at the same moment, so pressing the wrong o
 
 ## 6. Avatars and look
 
-- **Prototype:** a mannequin in **our own style** (teal / white / slate, chest and pelvis blocks, neck, jointed slim limbs, block feet). Since P1.2 round 3 it uses a generic physics-dummy shape language at the owner's request (REFERENCE_ANALYSIS §6). Its drawn proportions are separate from the physics body, which the drawing never changes.
+- **Prototype:** a wooden mannequin (one rectangular torso block, head on a neck, slim limbs with darker joint balls, block feet; brown Wood-material palette in `Look.PALETTE`). Since P1.2 round 3 it uses a generic physics-dummy shape language, and since look pass 2 a brown wooden palette, both at the owner's request (REFERENCE_ANALYSIS §6). Its drawn proportions are separate from the physics body, which the drawing never changes.
 - **Game:** the player's R15 avatar posed from the simulation. Body scale is limited to standard proportions so physics is identical for everyone. Stickman mode stays as a setting.
 - **Our own art direction:** palette, skybox, equipment designs and UI. Nothing from the reference's look (REFERENCE §6).
 

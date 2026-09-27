@@ -32,11 +32,11 @@ Design principles:
 Left and right limbs are always paired, as in the reference, so each pair is one 2D body. Rendering draws two limbs with a sideways offset.
 
 **Drawn body vs physics body (P1.2 round 3).** The collision shapes below (`Rig.RADIUS`) are for physics only. The drawn body has its own proportions (`Look.luau`, read only by the renderer and tests), and every drawn shape stays inside the collision shapes; only the foot's square corners pass the rounded ends, by ≤ 0.014 studs.
-- A chest block (0.8 × 1.0) and a pelvis block (0.72 × 0.82) replace the drawn round torso capsule.
+- One rectangular torso block, hip line to shoulder line (2.0 long, 0.78 across in the plane, 0.94 deep), replaces the drawn round torso capsule. Its corners stay inside the collision shapes in every tested pose.
 - The head is smaller (radius 0.36 vs 0.45), its top at the collision head's top, on a neck.
 - The limbs are slimmer (arms 0.12 / 0.105, legs 0.165 / 0.12 vs 0.17 / 0.15 / 0.23 / 0.18).
 - The feet are blocks whose sole is the collision sole.
-- Arms are drawn at depth ±0.64 and legs at ±0.24 (was ±0.32 for both), so arms can't pass through the head or chest.
+- Arms are drawn at depth ±0.64 and legs at ±0.24 (was ±0.32 for both), so arms can't pass through the head or torso.
 
 *Change at implementation (per the P1.1 direction):* arms are **upper arm + forearm with an elbow**. The elbow motor is strong and targets nearly straight, so arms look straight like the reference but give a little under load.
 

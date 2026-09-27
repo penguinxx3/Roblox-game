@@ -18,7 +18,7 @@ Press **Play** (F5). In the **Output** window you should see:
 
 | Expect | Meaning |
 |---|---|
-| `[GymSelfTest] ... 63 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
+| `[GymSelfTest] ... 64 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
 | `[GymClient] P1.2 movement running. Play: A/← Arch, ...` | The client started in player control |
 | `[GymClient] runtime check OK: scene=Hang steps=... avgSim=...ms ...` | The simulation is stepping and rendering after 3 s |
 | No red errors, no `warn` lines from `[GymClient]` | |
@@ -28,7 +28,7 @@ Also check `ReplicatedStorage.GymTests` in Explorer (server view): `SelfTestStat
 **Full suite** (includes the slow soaks, ~30–60 s). From the **command bar**, in Edit mode or on the server during Play:
 
 ```lua
-print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (67 passed)
+print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (68 passed)
 ```
 
 ## 2. Controls
@@ -140,7 +140,7 @@ Round 3 (after the Arch changes; PLAYTEST_P1_2.md, round 2):
 6. **Slow-mo indicator:** clear, and not in the way?
 7. **Motor A/B:** redo §4a properly blind, and send the reveal line (round 2's "preferred B" couldn't be counted).
 8. **Pumping, twist, moon, slow motion, tuck:** still as good as round 2? Tests guard them, but say if anything feels different.
-9. **Character look (new body proportions):** the body should look slimmer and more human (chest and pelvis blocks, head on a neck, slim limbs, clear feet) with **no change in movement**. Check it standing, jumping, tucked, arched and back-flipping, twisting, swinging, at release, landing, and on the moon. Report any pose where parts look wrong. With arms overhead, the near arm passing in front of the head from the side is normal; it no longer goes *through* the head.
+9. **Character look (new body proportions):** the body should look slimmer and more human (one rectangular torso block, head on a neck, slim limbs with darker joint balls, clear feet; brown wood) with **no change in movement**. Check it standing, jumping, tucked, arched and back-flipping, twisting, swinging, at release, landing, and on the moon. Report any pose where parts look wrong. With arms overhead, the near arm passing in front of the head from the side is normal; it no longer goes *through* the head.
 
 ## 7. For a Claude session with Studio MCP on your computer
 

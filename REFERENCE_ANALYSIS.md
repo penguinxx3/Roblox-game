@@ -163,8 +163,10 @@ The mechanics shown (bar swinging, arch/tuck/pike, release, regrab, twist, slow-
 - **Name and wording:** the game's name, and the "Regrabs" counter label and its styling. We use our own term and HUD design. No modifier label text or placement cloned ("Slow Mo - Moon Gravity" at the bottom).
 - **Character look:** the brown/grey stick figure with a box torso, ball head, capsule limbs and L-feet. We use Roblox avatars, and our own stylized "stickman mode" with different proportions and materials.
   - *P1.2 round 3, owner's decision:* the prototype figure moved toward the generic physics-dummy language the owner pointed to (block torso, ball head, slim limbs, block feet), because the drawn collision capsules looked clunky.
-  - What stays ours: the teal / white / slate palette and SmoothPlastic look, a two-part chest and pelvis, a neck, capsule limbs with joint balls and hands, and our proportions.
-  - What is not used: the reference's colours, its ellipsoid limb shapes, and its art direction.
+  - *Look pass 2, owner's decision:* one rectangular torso block (not a chest and a pelvis) and a brown wooden palette in place of teal / white. This brings the prototype figure **closer to the reference's colouring** (a brown figure with a box torso); the owner asked for it knowingly.
+  - What stays ours: the Wood material with its grain, darker joint balls, far-side limbs shaded darker, a neck, cylinder limbs with hands, and our proportions. There is no grey, and none of the reference's art direction (sky, floor, blocks).
+  - What is not used: the reference's ellipsoid limb shapes, its exact colours (ours are our own hex values in `Look.PALETTE`), and its art direction.
+  - For release, the plan above (Roblox avatars, and a stickman mode with our own proportions and materials) still stands; the palette is one table to change.
 - **Art direction:** the blue-gradient sky with those clouds, red floor, and grey blocks with dark sides. We build our own palette, materials and skybox.
 - **Signature equipment designs:** white poles with grey swivel handles, red scaffold frames, and the red/grey cross-planked spoke wheels. Our equipment serves the same functions with our own look.
 - **UI:** the replay viewer layout (speed selector, icons, timeline), the button layout and editor, menus, sounds and music.

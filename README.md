@@ -31,7 +31,7 @@ cargo install stylua --locked --features luau
 |---|---|
 | Build the place | `rojo build -o build/BarGym.rbxl`, then open it in Roblox Studio and press Play |
 | Live sync into Studio | `rojo serve`, then connect with the Rojo Studio plugin |
-| Headless tests (67) | `lune run tests/run.luau` (`--quick` skips slow tests; a name filter such as `movement` is optional) |
+| Headless tests (68) | `lune run tests/run.luau` (`--quick` skips slow tests; a name filter such as `movement` is optional) |
 | Built-place self-test | `lune run tools/place_selftest.luau` (after building; `--full` includes the slow soaks) |
 | Headless client harness | `lune run tools/client_harness.luau` (after building) |
 | Solver settings benchmark | `lune run tools/solver_bench.luau` |

@@ -1,6 +1,7 @@
 --!strict
 -- Look tests (P1.2 round 3): the drawn body's proportions are presentation only, stay inside
--- the physics collision shapes (so contacts still look right), and don't intersect themselves.
+-- the physics collision shapes (so contacts still look right), and don't intersect themselves;
+-- the torso is one block, and every shape's colour is in the hex palette.
 
 return function(T: any)
 	local Sim = T.gym("Sim")
@@ -137,15 +138,13 @@ return function(T: any)
 
 	T.test("the drawn body doesn't intersect itself in depth (head, arms, legs, torso)", function()
 		local sim = Sim.new(nil, "Hang", { control = "player" })
-		local head, chest, pelvis = nil :: any, nil :: any, nil :: any
+		local head, block = nil :: any, nil :: any
 		local armR, legR = 0, 0
 		for _, p in Look.build(sim.rig) do
 			if p.name == "head" then
 				head = p
-			elseif p.name == "chest" then
-				chest = p
-			elseif p.name == "pelvis" then
-				pelvis = p
+			elseif p.name == "torso" then
+				block = p
 			elseif
 				p.name == "shoulder"
 				or p.name == "upperArm"
@@ -165,20 +164,20 @@ return function(T: any)
 			end
 		end
 		-- every arm shape lies in its own depth plane at ±ARM_DEPTH: in any pose it clears the
-		-- head (a sphere on the centre plane) and the chest block beside it
+		-- head (a sphere on the centre plane) and the torso block beside it
 		local headGap = Look.ARM_DEPTH - armR - head.r
-		local chestGap = Look.ARM_DEPTH - armR - chest.width / 2
+		local torsoGap = Look.ARM_DEPTH - armR - block.width / 2
 		local legGap = 2 * (Look.LEG_DEPTH - legR)
 		local armLegGap = (Look.ARM_DEPTH - armR) - (Look.LEG_DEPTH + legR)
 		T.note(
-			"depth gaps: head-arm / chest-arm / leg-leg / arm-leg",
-			string.format("%.2f / %.2f / %.2f / %.2f", headGap, chestGap, legGap, armLegGap)
+			"depth gaps: head-arm / torso-arm / leg-leg / arm-leg",
+			string.format("%.2f / %.2f / %.2f / %.2f", headGap, torsoGap, legGap, armLegGap)
 		)
 		T.above(headGap, 0.05, "arms clear the head")
-		T.above(chestGap, 0, "arms clear the chest")
+		T.above(torsoGap, 0, "arms clear the torso block")
 		T.above(legGap, 0.1, "legs clear each other")
 		T.above(armLegGap, 0.05, "arms clear the legs")
-		T.below(Look.LEG_DEPTH + legR, pelvis.width / 2 + 0.01, "hips within the pelvis width")
+		T.below(Look.LEG_DEPTH + legR, block.width / 2 + 0.01, "hips within the torso block's width")
 		-- the head sits apart from the shoulders (a neck), not buried in the chest
 		local torso = sim.rig.segmentByName.torso
 		T.above(head.ax - head.r - torso.p1x, 0.3, "gap between the shoulder line and the head")
@@ -198,15 +197,18 @@ return function(T: any)
 				T.below(p.r, p.seg.radius, `{p.name} drawn thinner than its collision shape`)
 			end
 		end
+		local blocks = 0
 		for _, p in prims do
-			if p.name == "chest" or p.name == "pelvis" then
+			if p.seg.name == "torso" and p.kind == "box" then
+				blocks += 1
 				T.below(
 					p.thick,
 					2 * Rig.RADIUS.trunk,
-					`{p.name} thinner in the plane than the collision torso`
+					"torso block thinner in the plane than the collision torso"
 				)
 			end
 		end
+		T.expect(blocks == 1, `the torso is one block ({blocks})`)
 		T.near(Rig.RADIUS.thigh, 0.23, 1e-12, "physics thigh radius unchanged")
 		T.near(Rig.RADIUS.trunk, 0.42, 1e-12, "physics trunk radius unchanged")
 		for _ = 1, 240 do
@@ -215,5 +217,16 @@ return function(T: any)
 			Sim.stepOnce(twin)
 		end
 		T.expect(Sim.checksum(sim) == Sim.checksum(twin), "building the look changed the simulation")
+	end)
+
+	T.test("every drawn shape has a colour in the palette, written as a hex code", function()
+		for key, hex in Look.PALETTE :: { [string]: string } do
+			T.expect(string.match(hex, "^#%x%x%x%x%x%x$") ~= nil, `PALETTE.{key} = "{hex}" is "#RRGGBB"`)
+		end
+		local sim = Sim.new(nil, "Stand", { control = "player" })
+		local P: { [string]: string } = Look.PALETTE :: any
+		for _, p in Look.build(sim.rig) do
+			T.expect(P[p.role] ~= nil, `{p.name}: colour role "{p.role}" in the palette`)
+		end
 	end)
 end

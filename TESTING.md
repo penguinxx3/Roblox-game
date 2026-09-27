@@ -62,8 +62,8 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 
 | Layer | Result |
 |---|---|
-| 1. Headless tests (`lune run tests/run.luau`) | **67 / 67** (the 40 P1.1 tests, the auto-added `Stand` scene check, 22 movement tests, 4 look tests) |
-| 2. Built-place self-test (`--full`) | **67 / 67** through Roblox-style instance `require` (quick mode: 63 passed, 4 slow ones skipped) |
+| 1. Headless tests (`lune run tests/run.luau`) | **68 / 68** (the 40 P1.1 tests, the auto-added `Stand` scene check, 22 movement tests, 5 look tests) |
+| 2. Built-place self-test (`--full`) | **68 / 68** through Roblox-style instance `require` (quick mode: 64 passed, 4 slow ones skipped) |
 | 3. Client harness | **76 / 76** checks, including the slow-motion indicator (hidden at 1×, shows 0.5× / 0.25× / 0.1×): 5 scenes, every debug control including the blind A/B (hidden labels, switch by key and button, Shift+B reveal with time played per variant and switch count), and gameplay input: keyboard holds and presses, gamepad analog trigger and buttons, touch layout (two thumbs at once, touch-down Let Go), crouch-and-release jump that lands, twist through a half-twist snap with continuous part motion |
 | Static analysis (luau-lsp, strict) | **0 errors** |
 | Formatting (StyLua) | clean |
@@ -104,13 +104,15 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 |---|---|
 | The drawn body stays inside the physics collision shapes (standing, crouch, tuck, arch, hang, pike on the bar) | farthest outside: 0.014 studs (a foot's square corner at the rounded capsule end); bound 0.04 |
 | Feet: the drawn sole is the physics sole | foot half-thickness = collision foot radius exactly; standing, lowest drawn point = lowest collision point (−0.033 / −0.033) |
-| No self-intersection in depth | gaps: head–arm 0.15, chest–arm 0.01, leg–leg 0.15, arm–leg 0.10 studs, in any pose (arms and legs sit in their own depth planes) |
-| Slimmer than the collision shapes; building the look doesn't touch the simulation | every drawn limb thinner than its collision shape; physics radii unchanged; checksum identical with and without building the look |
+| No self-intersection in depth | gaps: head–arm 0.15, torso–arm 0.04, leg–leg 0.15, arm–leg 0.10 studs, in any pose (arms and legs sit in their own depth planes); hips within the torso block's width |
+| Slimmer than the collision shapes; building the look doesn't touch the simulation | the torso is one block, thinner in the plane than the collision torso; every drawn limb thinner than its collision shape; physics radii unchanged; checksum identical with and without building the look |
+| Every drawn shape has a colour in the palette, written as a hex code (look pass 2) | every `Look.PALETTE` entry is `#RRGGBB`; every shape's colour role is in the palette |
 
 **Movement is unchanged by the look pass.**
 - A physics fingerprint (standing, jump, tuck, arch/backflip, twist, bar swing, release, landing, moon jump and moon swing) is bit-identical before and after.
 - `tools/flip_bench.luau` output is identical.
 - The client harness draws 26 body parts per scene (was 34); frame cost is 0.35 ms (was 0.48).
+- Look pass 2 (one torso block, brown wood palette): fingerprint and flip bench again identical; 25 body parts per scene; frame cost 0.39 ms.
 
 **Changed in playtest feedback round 1** (PLAYTEST_P1_2.md; all layers above re-run):
 - New tests: *back-flip takeoff* and *pumping: held shapes don't drain the swing; from a still hang pumping reaches a giant*.
