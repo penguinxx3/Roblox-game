@@ -1,8 +1,8 @@
-# Studio Validation — P1.2 Movement Control
+# Studio Validation — P1.2 Movement Control (+ playtest feedback round 1)
 
 What must be checked **inside Roblox Studio**. This couldn't be done from the cloud build environment, which has no connection to Studio.
 
-P1.1 (physics foundation) was validated in Studio by the owner. Everything headless for P1.2 is green (TESTING.md, "P1.2 status"). This list covers what only the real engine, real input devices and human eyes can confirm.
+P1.1 (physics foundation) was validated in Studio by the owner. P1.2 was playtested once; the findings and the changes made in response are in [PLAYTEST_P1_2.md](PLAYTEST_P1_2.md). Everything headless is green (TESTING.md, "P1.2 status"). This list covers what only the real engine, real input devices and human eyes can confirm.
 
 Tick items and note anything odd, ideally with a short screen recording.
 
@@ -18,7 +18,7 @@ Press **Play** (F5). In the **Output** window you should see:
 
 | Expect | Meaning |
 |---|---|
-| `[GymSelfTest] ... 54 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
+| `[GymSelfTest] ... 56 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
 | `[GymClient] P1.2 movement running. Play: A/← Arch, ...` | The client started in player control |
 | `[GymClient] runtime check OK: scene=Hang steps=... avgSim=...ms ...` | The simulation is stepping and rendering after 3 s |
 | No red errors, no `warn` lines from `[GymClient]` | |
@@ -28,7 +28,7 @@ Also check `ReplicatedStorage.GymTests` in Explorer (server view): `SelfTestStat
 **Full suite** (includes the slow soaks, ~30–60 s). From the **command bar**, in Edit mode or on the server during Play:
 
 ```lua
-print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (58 passed)
+print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (60 passed)
 ```
 
 ## 2. Controls
@@ -45,7 +45,9 @@ print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- exp
 | Twist left / right (hold; both = hold the angle) | Q / E | LB / RB | ◄ / ► |
 | Reset | R | Y | Reset button (top right) |
 
-**Debug:** 1–5 scene · V pose override (holds a named pose instead of your input: Neutral → Tuck → Pike → Arch → Crouch → Limp → back to your input) · T slow-mo 1 / 0.5 / 0.25 / 0.1 · G moon gravity · P pause · N single step · C contact markers · F2 overlay. The same actions are buttons at the top right.
+**Debug:** 1–5 scene · V pose override (holds a named pose instead of your input: Neutral → Tuck → Pike → Arch → Crouch → Limp → back to your input) · T slow-mo 1 / 0.5 / 0.25 / 0.1 · G moon gravity · P pause · N single step · C contact markers · **B blind A/B switch, Shift+B reveal (§4a)** · F2 overlay. The same actions are buttons at the top right (the A/B button switches only).
+
+**Back-flip takeoff (standing):** hold S to crouch, press and hold A, release S (the push starts with Arch held), then press S in the air to tuck.
 
 The overlay's `move` line shows the mode (grip / air / ground / fallen), facing, twist angle and half twists, spin rate, crouch depth, swing rate and the last event; the `input` line shows what the simulation receives.
 
@@ -54,10 +56,12 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
 | Scene | Do this | Expected | Report if seen |
 |---|---|---|---|
 | **1 Hang** | Watch 5 s with no input | Swings from 60°, slowly loses height (as in P1.1; the shoulders are a little firmer on the bar) | Jitter; a swing that gains height without input |
-| | Hold **A** (Arch), then **S** (Tuck), then both (Pike) | The body opens (hips and shoulders back), folds into a tuck, and pikes (straight legs), each smoothly within ~0.2 s | Snapping, visible wobble after the shape settles, joints separating |
-| | **Pump:** Tuck as the body swings up, Arch as it swings down, for 10–15 s | The swing grows well past horizontal. The opposite timing kills the swing | No growth with correct timing; growth with wrong timing |
+| | Hold **A** (Arch), then **S** (Tuck), then both (Pike) | The body opens (hips and shoulders back), folds into a tuck, and pikes (straight legs), each smoothly within ~0.2 s. On the bar the tuck keeps the arms overhead, holding the bar | Snapping, visible wobble after the shape settles, joints separating |
+| | **Pump:** Tuck as the body swings up, Arch as it swings down, for 10–15 s | The swing grows past horizontal and, kept up, goes over the top (a giant swing). Holding a shape costs a little swing, not a lot. The opposite timing kills the swing | No growth with correct timing; growth with wrong timing; **active swinging that feels like it slows you down** (note when) |
+| | Set `hangStartAngle` = 0 (§4), press R, then pump | Starts from a still hang. The first swings grow slowly, then faster; ~10 s to horizontal with a steady rhythm | Can't get it started at all |
+| | Pump 3–5 swings, press **W** on the front upswing (30–60° past the bottom), then hold **S** | A full flip or more before landing (≈ 1–2.5 rev) | Not enough rotation for a flip; landing always fails |
 | | Press **W** at different points of the swing | Lets go instantly; the body flies along the swing with the same rotation (no pop, no slowdown) | Any jolt, speed change or delay at release |
-| | After letting go, hold **S** | Spins visibly faster while tucked, slower again when released | |
+| | After letting go, hold **S** | The arms come in (hands toward the shins) and it spins visibly faster within ~0.1–0.2 s; slower again when released | Arms flailing or swinging far past the shins; a slow, loose tuck |
 | | After letting go, hold **E** (or **Q**) | The body turns about its long axis, chest toward then away from the camera, **with no jump or flicker when passing side-on** (the half-twist snap) | Any flicker, jump or limb swap you can see |
 | **2 Drop** | Watch | Falls ~4 studs, **lands on its feet, bends to absorb and stands up** | Falling over; sinking into the floor; a bounce back into the air |
 | **3 Tumble** | Watch, then Reset and hold **S** | Thrown up spinning; tucking spins faster; lands (on the feet if roughly upright, otherwise physically on the floor) | Passing through blocks or the ramp; exploding limbs |
@@ -67,10 +71,12 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
 | | Hold **S** ~0.5 s, release | Crouches (controlled, feet stay down), then **jumps ~1.5 studs**, lands on the feet and stands up again | Feet leaving the floor while crouching; big forward drift; falling after landing |
 | | Hold **A** | Rises into a reach (arms up) and keeps balance | |
 | | Jump, then **E** in the air | Twists in the air, lands square | |
+| | Back-flip takeoff (§2), then **S** in the air | As high as a plain jump, with a visible backward spin; about half a turn (a full back flip isn't reachable by the feet alone) | Lower than a plain jump; forward drift |
+| | Same with `jumpSpinAssist` = 1 (§4) | About a full back tuck, landing on the feet (with some practice) | |
 
 **Slow motion (T)** — repeat a jump and a release at 0.25 and 0.1: motion stays smooth, and **every press still works**, even a quick tap (presses are counted, never dropped).
 
-**Moon (G)** — jumps and swings are the same height as on Earth but ~2.5× slower and floatier (strength follows gravity by default). For real-moon jumps (~6× higher) set `strengthGravityScaling = 0` in `GymTuning` (§4) and compare.
+**Moon (G)** — jumps and swings are the same height as on Earth but ~2.5× slower and floatier (strength follows gravity by default). For real-moon jumps (~6× higher) set `strengthGravityScaling = 0` in `GymTuning` (§4) and compare. With `jumpSpinAssist` = 1, a standing back tuck on the moon turns about twice.
 
 **Touch** — Studio's **Device Emulator** (Test tab → Device, pick a phone): the six touch buttons appear (ARCH / TUCK left, ◄ ► LET GO GRAB right). Check that they react on **touch-down**, that ARCH + TUCK can be held together, and that you can hold TUCK while pressing LET GO. The layout is a functional placeholder, not the final mobile UI.
 
@@ -81,7 +87,10 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
 1. During Play, switch Explorer to the **client** view.
 2. Select `ReplicatedStorage.GymTuning`.
 3. Edit attributes in Properties. Changes apply immediately, except the ones marked "applies on Reset" in the overlay. Worth trying for P1.2 feel:
-   - `motorHertz` 6 → 8 (firmer shapes; tuck spin reaches the reference's ≈1.6×)
+   - `motorHertz` 6 vs 8: use the blind A/B (§4a) rather than editing it
+   - `jumpSpinAssist` 0 → 1 (standing back flips; off = pure physics)
+   - `hangStartAngle` 60 → 0, then R (start from a still hang)
+   - `tuckHertz` 10 (air tuck squeeze; 6 = as first playtested, 8 = softer), `gripHipHertz` 10 (bar hips; 6 = as first playtested)
    - `motorDampingRatio` 1.25 → 0.8 (P1.1's livelier, wobblier feel) or 1.5 (calmer)
    - `shapeFreqClose` / `shapeFreqOpen` 30 (no input smoothing, like P1.1) vs 8 / 6
    - `swingAssist` 0 → 0.5 (pumping reaches a giant swing in a few swings)
@@ -90,20 +99,41 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
    - `strengthGravityScaling` 0 with moon on
 4. Out-of-range values snap back to the allowed range.
 
+## 4a. Blind A/B: motor 6 vs 8 Hz
+
+Metrics can't settle this; it is a feel question, so it is tested blind. At session start, A and B are randomly assigned `motorHertz` 6 and 8. The overlay shows only the letter.
+
+1. Press Play. Leave `motorHertz` alone in Properties: the A/B sets it.
+2. Press **B** once (overlay: `blind A/B: now A`).
+3. Play the same short routine on A for ~2 minutes:
+   - Hang: pump up, let go, tuck.
+   - Stand: jump and land.
+   - Tumble: tuck and open in the air.
+4. Press **B** (now B) and play the same routine on B. Switch back and forth 2–3 more times; don't try to guess the values.
+5. Write down which letter felt better and why (responsiveness, smoothness, control, flips) **before** revealing.
+6. Press **Shift+B** to reveal (overlay and Output: `[GymAB] reveal: A = motorHertz …`). Send the note and the reveal line.
+
+Best with 2–3 people, each with a fresh Play session (a new random mapping). What `motorHertz` changes after the feedback round:
+- **In the air:** Arch, Neutral and the landing reflex. The tuck squeeze is 10 Hz either way.
+- **On the bar:** knees and ankles. Shoulders and elbows are 18 Hz and hips at least 10 Hz either way.
+
 ## 5. Performance (needs a real device for the real answer)
 
 - **In Studio:** the overlay line `sim X ms (N steps) render Y ms` shows the per-frame cost. MicroProfiler (Ctrl+F6) has labels `GymSim` and `GymRender`.
 - **On a phone (the real target):** publish privately, open on your lowest-end phone, and read the same overlay line. The budget is sim ≤ 1.0 ms/frame and fps ≥ 30 on low-end (headless Lune: ~0.1 ms of physics per 60 fps frame; the controller adds a little). Please send the numbers for each device, and note whether touch buttons respond instantly.
 
-## 6. Human look and feel (P1.2 questions)
+## 6. Human look and feel (questions for the next playtest)
 
-1. **Smoothness:** is it smoother than P1.1 without feeling mushy or slow? (P1.2 raised motor damping and smooths input; see TESTING.md for the numbers.) Compare `motorDampingRatio` 0.8 vs 1.25 if unsure.
-2. **Responsiveness:** does Arch/Tuck feel instant? Does Let Go feel exactly when you pressed?
-3. **Pumping:** can you build the swing by timing? Should it be easier (assist or firmer motors), or is the challenge right?
-4. **Twist:** does it look like a real twist? Is 1.5 rev/s the right speed? Hold or tap mode?
-5. **Ground:** do standing, the crouch-and-jump, and landings look physical and controllable? Is the jump height right?
-6. **Moon:** "same jump, slow and floaty" (default) or "real moon, huge jumps" (`strengthGravityScaling = 0`)?
-7. Anything that looks wrong at joints, contacts, or in slow motion.
+Scores out of 10 per item, as in round 1, help compare.
+
+1. **Flips from the bar:** pump 3–5 swings, let go on the front upswing, Tuck. Does a full flip, and then more than one, feel reachable and controllable?
+2. **Tuck:** is it visibly compact and quick now? Do the arms look right, or floppy? (If floppy: `tuckHertz` 8 or `motorDampingRatio` 1.5.)
+3. **Pumping:** still good? Does active swinging still ever feel like it slows you down (when exactly)? From a still hang (`hangStartAngle` 0), is building a swing fun or a chore?
+4. **Standing back tuck:** with `jumpSpinAssist` 0 and 1. Keep the assist, change it, or leave standing flips out?
+5. **Arch:** now that it has clear jobs (pump on the downswing, open to slow a spin, back-flip takeoff), does it make sense?
+6. **Motor A/B:** result of §4a.
+7. **Smoothness:** anything that looks wobbly or snappy since this round (the tuck squeeze and firmer bar hips trade a little smoothness for responsiveness)?
+8. **Twist, moon, joints, contacts, slow motion:** anything that looks wrong.
 
 ## 7. For a Claude session with Studio MCP on your computer
 

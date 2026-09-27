@@ -83,6 +83,8 @@ Rig.LIMITS = {
 Rig.POSES = {
 	Neutral = { shoulder = 8, elbow = 5, hip = 8, knee = 5, ankle = 90 },
 	Tuck = { shoulder = 25, elbow = 20, hip = 125, knee = 135, ankle = 90 },
+	-- Tuck off the bar (P1.2 feedback): the arms come in, hands toward the shins (compact)
+	AirTuck = { shoulder = 110, elbow = 60, hip = 125, knee = 135, ankle = 90 },
 	Pike = { shoulder = 15, elbow = 5, hip = 115, knee = 0, ankle = 100 },
 	Arch = { shoulder = -25, elbow = 0, hip = -30, knee = 0, ankle = 100 },
 	Crouch = { shoulder = 90, elbow = 10, hip = 70, knee = 90, ankle = 70 },
@@ -138,6 +140,10 @@ export type Rig = {
 	pose: string,
 	mass: number,
 	facing: number, -- +1 or -1: which way the chest faces in the plane
+	-- the straight body hanging from its hands: inertia about the grip, and how far below the
+	-- grip its centre of mass is (the swing energy cap's reference, see Controller)
+	hangInertia: number,
+	hangRadius: number,
 }
 
 export type Placement = {
@@ -350,6 +356,8 @@ function Rig.build(world: Solver2D.World, t: Tuning.Values, placement: Placement
 		pose = placement.pose or "Neutral",
 		mass = M,
 		facing = 1,
+		hangInertia = 0,
+		hangRadius = 0,
 	}
 	local limbFriction = t.friction
 	for _, s in segs do
@@ -435,7 +443,32 @@ function Rig.build(world: Solver2D.World, t: Tuning.Values, placement: Placement
 	end
 	Rig.setFacing(rig, 1)
 
-	-- 6. Initial velocity: translation plus spin about the rig's centre of mass.
+	-- 6. The straight hang (arms overhead, as rigPoints builds with no pose), whatever the
+	--    build pose: each segment's centre of mass sits at its start point minus its local offset.
+	local SP, SANG = rigPoints(t, nil)
+	local START = {
+		torso = "hip",
+		upperArm = "shoulder",
+		forearm = "elbow",
+		thigh = "hip",
+		shank = "knee",
+		foot = "heel",
+	}
+	local hI, hx, hy = 0, 0, 0
+	for _, seg in rig.segments do
+		local a, ang = SP[START[seg.name]], SANG[seg.name]
+		local c, s = cos(ang), sin(ang)
+		local dx = a[1] - (c * seg.p0x - s * seg.p0y) - SP.grip[1]
+		local dy = a[2] - (s * seg.p0x + c * seg.p0y) - SP.grip[2]
+		local b = seg.body
+		hI += b.inertia + b.mass * (dx * dx + dy * dy)
+		hx += b.mass * dx
+		hy += b.mass * dy
+	end
+	rig.hangInertia = hI
+	rig.hangRadius = math.sqrt(hx * hx + hy * hy) / M
+
+	-- 7. Initial velocity: translation plus spin about the rig's centre of mass.
 	local vx, vy, w = placement.vx or 0, placement.vy or 0, placement.w or 0
 	if vx ~= 0 or vy ~= 0 or w ~= 0 then
 		local cx, cy = Rig.centerOfMass(rig)

@@ -334,6 +334,16 @@ local list: { Param } = {
 		desc = "How fast the target shape moves when opening (kick-out, arch, standing up).",
 	},
 
+	{
+		key = "tuckHertz",
+		default = 10,
+		min = 1,
+		max = 30,
+		unit = "Hz",
+		category = "Shape",
+		desc = "Motor frequency of shoulders, elbows, hips and knees while tucking or piking off the bar (an active squeeze: the tuck closes fast and holds against the spin). At or below motorHertz = no squeeze (6 = P1.2 as first tested).",
+	},
+
 	-- Ground: standing, balance, jumping, landing (P1.2) ---------------------------
 	{
 		key = "groundShapeHertz",
@@ -424,6 +434,15 @@ local list: { Param } = {
 		unit = "rev/s",
 		category = "Ground",
 		desc = "Backward spin the push aims for while Arch is held (a back-flip takeoff; tuck in the air to spin faster). 0 = Arch has no effect on the push.",
+	},
+	{
+		key = "jumpSpinAssist",
+		default = 0,
+		min = 0,
+		max = 1,
+		unit = "×",
+		category = "Ground",
+		desc = "Optional assist (not muscle): after an Arch push, the share of the back-flip spin the feet couldn't produce that is added over the first 0.1 s of flight. The feet alone reach about 0.4 rev/s (a standing back flip needs about 0.8); 1 = reach jumpArchSpin. 0 = pure physics.",
 	},
 	{
 		key = "jumpHertz",
@@ -572,13 +591,32 @@ local list: { Param } = {
 		desc = "Friction torque at the grip (energy lost per swing).",
 	},
 	{
+		key = "hangStartAngle",
+		default = 60,
+		min = 0,
+		max = 170,
+		unit = "deg",
+		category = "Swing",
+		desc = "Where the Hang scene starts, released from rest at this angle from vertical. 60 = a ready-made swing (the physics test setup); 0 = a still hang, to practise building a swing from nothing.",
+		reset = true,
+	},
+	{
 		key = "gripShoulderHertz",
 		default = 18,
 		min = 1,
 		max = 60,
 		unit = "Hz",
 		category = "Swing",
-		desc = "Shoulder motor frequency while gripping. The shoulders turn the whole hanging body, so they need a stiffer spring than in the air (6 = P1.1: the shoulders barely follow Arch/Tuck on the bar).",
+		desc = "Shoulder and elbow motor frequency while gripping. The arms carry and turn the whole hanging body, so they need a stiffer spring than in the air (6 = P1.1: the shoulders barely follow Arch/Tuck on the bar, and soft elbows flex under the swing and drain it).",
+	},
+	{
+		key = "gripHipHertz",
+		default = 10,
+		min = 1,
+		max = 60,
+		unit = "Hz",
+		category = "Swing",
+		desc = "Hip motor frequency while gripping (at least motorHertz). The hips hold the legs against the swing's pull: softer, a held Tuck or Pike sags at the bottom of each swing and springs back at the top, the reverse of pumping, so holding a shape drains the swing.",
 	},
 	{
 		key = "swingAssist",

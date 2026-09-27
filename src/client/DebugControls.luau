@@ -5,10 +5,16 @@
 --             of the player's input; cycles through the poses and back to off)
 --             T cycle slow-mo · G moon gravity · P pause · N single step (while paused)
 --             C contact markers · F2 overlay
---   Touch:    a compact button row (top-right) with the same actions.
+--             B blind A/B switch · Shift+B reveal (see below)
+--   Touch:    a compact button row (top-right) with the same actions (A/B switches only).
 --   Tuning:   every Tuning parameter is mirrored as an attribute on the client-side
 --             folder ReplicatedStorage.GymTuning. Edit them live in Studio's
 --             Properties panel during Play (client view). `reset` params apply on reset.
+--   Blind A/B: two values of one parameter under hidden labels A and B, assigned at random
+--             each session. B switches (the first press starts at A); Shift+B reveals which
+--             was which, in the overlay and in Output. Decide which feels better before
+--             revealing. While in use, the A/B sets the parameter (a Properties edit is
+--             replaced at the next switch).
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -30,6 +36,10 @@ export type Actions = {
 }
 
 local TIME_SCALES = { 1, 0.5, 0.25, 0.1 }
+
+-- The blind A/B test's parameter and its two candidate values (P1.2 feedback: motor 6 vs 8)
+local AB_PARAM = "motorHertz"
+local AB_VALUES = { 6, 8 }
 
 local function nextTimeScale(current: number): number
 	for i, v in TIME_SCALES do
@@ -61,6 +71,28 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		actions.scenario(list[idx % #list + 1].name)
 	end
 
+	-- blind A/B: random mapping per session, hidden until revealed
+	local swapped = math.random() < 0.5
+	local abValue = {
+		A = AB_VALUES[if swapped then 2 else 1],
+		B = AB_VALUES[if swapped then 1 else 2],
+	}
+	local abCurrent: string? = nil
+	local function abSwitch()
+		abCurrent = if abCurrent == "A" then "B" else "A"
+		Sim.setParam(sim, AB_PARAM, abValue[abCurrent :: string])
+		state.note = `blind A/B: now {abCurrent}   (B switch, Shift+B reveal)`
+		print(`[GymAB] now {abCurrent}`)
+	end
+	local function abReveal()
+		if abCurrent == nil then
+			return
+		end
+		local msg = `[GymAB] reveal: A = {AB_PARAM} {abValue.A}, B = {AB_PARAM} {abValue.B} (now {abCurrent})`
+		state.note = msg
+		print(msg)
+	end
+
 	local handlers: { [string]: () -> () } = {
 		Reset = actions.reset,
 		Scene = cycleScenario,
@@ -82,6 +114,7 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		end,
 		Step = actions.stepOnce,
 		Info = actions.toggleOverlay,
+		["A/B"] = abSwitch,
 	}
 
 	-- Keyboard (keyed by KeyCode name: robust and readable)
@@ -107,7 +140,18 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 		if processed then
 			return
 		end
-		local fn = keyMap[input.KeyCode.Name]
+		local name = input.KeyCode.Name
+		if name == "B" then
+			local shift = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift)
+				or UserInputService:IsKeyDown(Enum.KeyCode.RightShift)
+			if shift then
+				abReveal()
+			else
+				abSwitch()
+			end
+			return
+		end
+		local fn = keyMap[name]
 		if fn then
 			fn()
 		end
@@ -130,7 +174,7 @@ function DebugControls.bind(sim: any, actions: Actions, playerGui: Instance): { 
 	layout.Padding = UDim.new(0, 6)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = row
-	for i, name in { "Reset", "Scene", "Pose", "Slow", "Moon", "Pause", "Step", "Info" } do
+	for i, name in { "Reset", "Scene", "Pose", "Slow", "Moon", "Pause", "Step", "Info", "A/B" } do
 		local b = Instance.new("TextButton")
 		b.Name = name
 		b.LayoutOrder = i

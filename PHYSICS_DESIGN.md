@@ -73,12 +73,17 @@ The solver works in relative body angles; each joint maps anatomical ↔ relativ
 - `target = Neutral + t·(Tuck − Neutral) + a·(Arch − Neutral) + p·(Pike − Neutral)` (on the bar and in the air).
 - **Input smoothing (P1.2):** the targets the motors see move through a critically damped second-order filter at `shapeFreqClose` (8 Hz) when closing (the target angle increases: tucking, piking) and `shapeFreqOpen` (6 Hz) when opening. It removes the step in target that made the motors slam to full torque; it adds ~0.01–0.02 s of response.
 - Motor damping is 1.25 (P1.1: 0.8). Measured with `tools/smooth_bench.luau` (zero gravity, hip and knee, vs exactly P1.1): overshoot 22.5° → 7.0°, lingering wobble 1.4° → 0.9°, joint jerk −46%, torso jerk while pumping −37%, response 0.17 → 0.19 s, tuck spin gain 1.47× → 1.52×. Pose settle time (Rig tests) 1.25–1.74 s → 0.75–1.12 s.
+- **Air tuck (P1.2 feedback round, PLAYTEST_P1_2.md):** off the bar (in the air, or fallen) Tuck uses **AirTuck**: the arms come down in front and the forearms fold toward the shins. On the bar the Tuck keeps the arms overhead, holding the bar. While tucking or piking off the bar, the shoulders, elbows, hips and knees also **squeeze**: their springs run at `tuckHertz` (10 Hz, blended by how far Tuck/Pike is pressed) instead of `motorHertz`.
+  - Measured (Tumble launch, no air damping): spin 0.1 s after pressing ×1.44 (P1.2 as first tested ×1.17, P1.1 ×1.48); full tuck ×2.2 (was ×1.5); rotation in 0.5 s of tuck 1.03 rev (was 0.77).
+  - The input smoothing stays at 8 / 6 Hz, because it also shapes the bar. Raising `shapeFreqClose` to 16 gives ×1.74 at 0.1 s.
+  - Cost, zero-gravity shape test: hip/knee overshoot 7° → 23° (P1.1 motor settings: 26°), wobble 0.9° → 1.6°. Without the squeeze: 13° / 1.3°. The spin pulls the arms outward, so they settle at shoulder ≈ 85–100° (hands by the knees). The arm target 110° / 60° peaks at 129°; 135° / 45° swung the arms past the shins, to 169°.
 
 | Pose | Shoulder | Elbow | Hip | Knee | Ankle |
 |---|---|---|---|---|---|
 | Neutral (air/bar: arms overhead, slight hollow) | +8° | +5° | +8° | +5° | 90° |
 | Arch | −25° | 0° | −30° | 0° | 100° |
-| Tuck | +25° | +20° | +125° | +135° | 90° |
+| Tuck (on the bar: arms overhead) | +25° | +20° | +125° | +135° | 90° |
+| AirTuck (Tuck off the bar: arms in, hands toward the shins) | +110° | +60° | +125° | +135° | 90° |
 | Pike | +15° | +5° | +115° | 0° | 100° |
 | GroundStand | +150° | +15° | +8° | +10° | 95° |
 | GroundCrouch (Tuck or Pike on the ground; balanced: centre of mass over the feet) | +70° | +15° | +107° | +100° | 118° |
@@ -171,7 +176,7 @@ As built (P1.2): exactly this. With the default shaping the release step changes
 
 ### 6.2 Flight
 - Just the solver with no grip and no contacts.
-- The spin rate follows body shape through conserved angular momentum. Target from the reference: tight tuck ≈ 1.6× the open or pike spin rate (TESTING R1).
+- The spin rate follows body shape through conserved angular momentum. A full arms-in tuck spins ≈ 2.2× faster than the open body. A real tight tuck from a straight body gives about 2.5–3.5×; the reference clips showed 1.4–1.9× (TESTING R1), with partial tucks. A half-pressed trigger gives a partial tuck.
 - Air drag defaults to 0.
 
 ### 6.3 Twist (2.5D layer) — as built
@@ -209,7 +214,15 @@ Pulled forward from Phase 2 at the owner's request. All of it is muscle torques 
 - The push chooses the **ground reaction force**: the body's weight plus `jumpStrength` (1.5) body weights upward, applied right under the centre of mass. Each leg joint produces the torque that force needs about it, `τ_j = −((c − p_j) × F)`, capped at `jumpLegStrength` × strength. Where the force acts under the foot (the centre of pressure `c`) sets the moment about the centre of mass, the only thing that changes the body's spin: it steers the spin to zero at `jumpSpinHertz`, or toward `jumpArchSpin` (0.8 rev/s) backward while Arch is held (a back-flip takeoff), within what the foot can physically do.
 - The hips bring the trunk from the crouch's lean to upright (`jumpTorsoHertz`), internally.
 - The push stops when the knees pass `jumpLockKnee` (10°) or the feet leave the ground: an uncontrolled toe-off added spin and drift.
-- Measured: plain jumps rise 1.4–1.8 studs (≈ 0.45 m at this scale), take off with ≤ 0.1 rev/s spin and ≤ 1.3 studs/s drift, and land back on the feet.
+- **Centre of pressure range (P1.2 feedback round):** the centre of pressure stays within the middle 60% of the foot (`PUSH_COP_RANGE`). Before, a back-flip takeoff pinned it at the toe edge. The ankles then tipped the body onto its toes and the knees stopped extending (100° → 77°), so the Arch jump lost a third of its height (1.35 vs 1.69 studs).
+- **Back-flip takeoff:** while Arch is held, the push also drops the horizontal drift damping. It pushed the feet forward under a body rotating back, and its moment cancelled the spin (0.08 rev/s with it, 0.38 without).
+- Measured: plain jumps rise 1.4–1.8 studs (≈ 0.45 m at this scale) with ~0.5–0.65 s of air. They take off with ≤ 0.1 rev/s spin and ≤ 1.3 studs/s drift, and land back on the feet.
+- An Arch takeoff rises 1.78 studs (plain 1.73) with 0.38 rev/s backward spin. Tucking right away turns ≈ 0.43 rev before landing: **the feet alone can't make a standing back flip** at this height.
+  - A real standing back tuck leaves the ground at ≈ 0.7–0.8 rev/s with a similar airtime. It gets there with a backward lean that puts the centre of mass behind the toes, which this push controller doesn't do.
+  - More height doesn't solve it: `jumpStrength` 1.5 → 3.5 raises the rise only 1.73 → 2.38 studs (airtime 0.63 → 0.75 s), because the push ends at knee lock. Plain jumps then land fallen.
+- **`jumpSpinAssist`** (optional, default 0 = pure physics): at takeoff after an Arch push, this share of the spin still missing to `jumpArchSpin` is added as a torque about the centre of mass over the first 0.1 s of flight.
+  - It acts after takeoff because adding it during the push tipped the body back while the legs were still extending (rise 1.78 → 0.56 studs).
+  - At 1: 0.87 rev before landing, landing on the feet, full height. Plain jumps are unaffected.
 
 **Landing:**
 - **Landing reflex** (air, no shape input, trunk within `landingReflexTilt`, falling): the hips swing the legs so the middle of the feet lands under the centre of mass plus half the pendulum capture-point lead (two-link leg geometry with soft knees), and the ankles level the feet. Internal motion only. It fades out mid-flip.
@@ -311,8 +324,14 @@ The reference never shows one-hand catches; hands always grip together. This sta
 
 ## 8. Swing shaping (hanging) — as built
 
-- **Pumping is physical:** the motors do work as the shape changes. Measured from a 60° start over 15 s (peak angle in the last 4 s): no input 50° (decays), Tuck while rising / Arch while falling 121° (builds to near-giant swings), the opposite timing 18° (damps).
+- **Pumping is physical:** the motors do work as the shape changes. Measured from a 60° start over 15 s (peak angle in the last 4 s): no input 50° (decays), Tuck while rising / Arch while falling 145° (P1.2 as first tested: 121°), the opposite timing 8° (damps).
+- **From a still hang** (`hangStartAngle` 0), with the rhythm judged by the swing's angle and direction: 90° at ≈ 10–12 s and over the top (a giant) at ≈ 12–15 s. Early growth is unchanged from P1.2 as first tested, which stalled at ≈ 107°. The first few swings are slow because the shape changes can only pump a swing in proportion to its size.
+  - The Hang scene's default 60° start skips that phase: the "initial boost" in the playtest.
 - **Bar shoulders:** while gripping, the shoulder motor runs at `gripShoulderHertz` (18 Hz; P1.1 behaviour is 6). The shoulders turn the whole hanging body, and at 6 Hz Arch and Tuck barely moved them (Neutral / Arch / Tuck gave −3° / −4° / −10° against targets 8 / −25 / 25). At 18 Hz: 6° / −21° / 20°, and pumping works as above.
+- **Bar elbows and hips (P1.2 feedback round):** the playtester felt that swinging actively sometimes slowed the body down. Two joints were fighting the swing:
+  - **Elbows** now use `gripShoulderHertz` too. The bar's pull runs through them, and at 6 Hz they flexed under the swing's load and their damping drained it. Pumping stalled at ≈ 107°; the relaxed swing lost 3.7° per cycle at 90° (now 2.3–2.5°).
+  - **Hips** use `gripHipHertz` (10 Hz). They hold the legs against the swing's pull; at 6 Hz a held Tuck or Pike sagged at the bottom of each swing and sprang back at the top, the reverse of pumping. Per cycle at 90°, holding Pike lost 10.7° (now 5.6°) and Tuck 6.8° (now 4.1°), against 2.3° relaxed.
+  - The price is a livelier pumping motion: torso jerk while pumping 2022 → 4082 (P1.1 motor settings: 3200). Extra damping on the bar hip brings it back down, but ζ 2 undoes much of the fix (Pike loss 7.1°).
 - **Assists and limits:**
 
 | Knob | Effect |
@@ -320,9 +339,9 @@ The reference never shows one-hand catches; hands always grip together. This sta
 | `gripFriction` | Friction torque at the grip (joint friction), in Mg·stud (0.02 default); energy lost per swing |
 | `angularDamping` | Air-like loss |
 | `swingAssist` | Optional extra torque about the grip, applied only when the shape change is **in phase** (the inertia about the grip is decreasing while the centre of mass rises) and only below the energy cap. Default 0. |
-| `maxSwingSpeed` | **Energy cap:** the swing may carry at most the energy of passing the bottom at this rotation rate (12 rad/s); any excess is braked away smoothly. It holds even against `swingAssist` = 2 (a 6 rad/s cap was held to 6.35 rad/s; 22.8 rad/s without the cap). |
+| `maxSwingSpeed` | **Energy cap:** the swing may carry at most the energy of the **straight** body passing the bottom at this rotation rate (12 rad/s). Any excess is braked away smoothly: removed at 40/s, at most 4 Mg·stud. It holds against pumping into giants and against `swingAssist` = 2: a 6 rad/s cap keeps the swing energy within 1.09× the cap. A tucked body with the capped energy spins faster than the cap rate, as physics says. Before the feedback round the cap was measured against the current shape, so tucking lowered it as it sped the swing up, and near the cap every tuck was braked. |
 
-Torques about the grip are applied as a whole-body rotation (the same angular acceleration for every body), so they never bend the body.
+Torques about the grip are applied as a whole-body rotation (the same angular acceleration for every body), so they never bend the body. `swingAssist` never adds more energy in a step than the cap leaves room for.
 
 ## 9. Time step, time scale, gravity, interpolation
 
@@ -414,13 +433,15 @@ Mass fractions, radii, the heel (`FOOT_HEEL`), shank trim and the inertia profil
 
 ### P1.2 parameters (implemented, live-editable)
 
-**Shape** — `shapeFreqClose` / `shapeFreqOpen` 8 / 6 Hz (1–30; 30 ≈ no smoothing).
+**Shape** — `shapeFreqClose` / `shapeFreqOpen` 8 / 6 Hz (1–30; 30 ≈ no smoothing). `tuckHertz` 10 Hz (1–30): the squeeze while tucking or piking off the bar (≤ `motorHertz` = none).
 
 **Swing**
 
 | Param | Default | Range | Unit | Notes |
 |---|---|---|---|---|
-| `gripShoulderHertz` | 18 | 1–60 | Hz | Shoulder springs while gripping (6 = P1.1) |
+| `gripShoulderHertz` | 18 | 1–60 | Hz | Shoulder and elbow springs while gripping (6 = P1.1) |
+| `gripHipHertz` | 10 | 1–60 | Hz | Hip springs while gripping (at least `motorHertz`; 6 = P1.2 as first tested) |
+| `hangStartAngle` | 60 | 0–170 | ° | Hang scene start (applies on Reset); 0 = a still hang |
 | `gripFriction` | 0.02 | 0–1 | Mg·stud | |
 | `swingAssist` | 0 | 0–2 | × | Only in phase, only below the cap |
 | `maxSwingSpeed` | 12 | 4–30 | rad/s | Energy cap |
@@ -444,6 +465,7 @@ Mass fractions, radii, the heel (`FOOT_HEEL`), shank trim and the inertia profil
 | `jumpLegStrength` | 3 | 0.5–8 | × | Leg torque cap during the push |
 | `jumpMinCrouch` / `jumpPushTime` / `jumpLockKnee` | 0.25 / 0.3 / 10 | 0–1 / 0.05–1 s / 0–60° | | |
 | `jumpSpinHertz` / `jumpArchSpin` | 4 / 0.8 | 0–20 Hz / 0–3 rev/s | | Spin control; backward spin with Arch |
+| `jumpSpinAssist` | 0 | 0–1 | × | Optional takeoff spin assist after an Arch push (1 = reach `jumpArchSpin`) |
 | `jumpTorsoHertz` / `jumpHertz` | 3 / 12 | 0–12 / 2–60 | Hz | Trunk steering / arm swing during the push |
 | `landingReflex` / `landingReflexTilt` | 1 / 45 | 0–1 / 5–90° | | Legs under the body before landing |
 | `landingHertz` / `landingDampingRatio` / `landingAbsorbTime` | 3 / 2.5 / 0.5 | | Hz / ζ / s | Landing damper |

@@ -67,6 +67,9 @@ export type State = {
 	wasTucking: boolean,
 	pushTimer: number, -- > 0 while a jump push is running
 	pushLean: number, -- trunk's forward lean when the push started (radians, per unit crouch depth)
+	pushArch: number, -- most Arch held during the current push (a back-flip takeoff)
+	spinAssistTimer: number, -- > 0 while the optional takeoff spin assist acts
+	spinAssistTorque: number,
 	absorbing: boolean, -- landing: the legs yield (pure damping) until the fall is stopped
 	absorbTimer: number, -- longest remaining absorb time
 	prevComVY: number,
@@ -122,6 +125,9 @@ function Controller.new(sim: any): State
 		wasTucking = false,
 		pushTimer = 0,
 		pushLean = 0,
+		pushArch = 0,
+		spinAssistTimer = 0,
+		spinAssistTorque = 0,
 		absorbing = false,
 		absorbTimer = 0,
 		prevComVY = 0,
@@ -170,10 +176,15 @@ local HEEL_RANGE = 0.35 -- studs from the ankle
 local STAND_COM_HEIGHT = 2.7 -- centre of mass above the feet when standing (studs)
 local REFLEX_KNEE = 15 -- soft knees for landing (degrees)
 local CAPTURE_LEAD = 0.5 -- share of the pendulum capture-point lead used to place the feet
-local SWING_CAP_RATE = 20 -- how fast swing energy above the cap is removed (1/s)
-local SWING_CAP_MAX = 2 -- largest braking torque of the swing cap (Mg·stud)
+local SWING_CAP_RATE = 40 -- how fast swing energy above the cap is removed (1/s)
+local SWING_CAP_MAX = 4 -- largest braking torque of the swing cap (Mg·stud)
 local LANDED_SPEED = 0.3 -- a landing is absorbed once the fall has slowed below this (studs/s)
 local MIRROR_CLEARANCE = 0.05 -- a half-twist snap needs this much room around the mirrored body (studs)
+-- during a jump push the ground's centre of pressure stays within this middle share of the
+-- feet: pinned at the toe edge, the ankles tip the body onto its toes and the knees stop
+-- extending, so a back-flip takeoff lost a third of its height (P1.2 feedback)
+local PUSH_COP_RANGE = 0.6
+local SPIN_ASSIST_TIME = 0.1 -- the optional takeoff spin assist acts over this long after takeoff (s)
 local function scanContacts(sim: any, st: State)
 	local rig: Rig.Rig = sim.rig
 	local ankle = rig.jointByName.ankle.joint
@@ -224,11 +235,14 @@ end
 local POSES = Rig.POSES
 local standingMuscles: (sim: any, st: State, t: Tuning.Values) -> ()
 local balanceAssist: (sim: any, st: State, t: Tuning.Values) -> ()
+local startSpinAssist: (sim: any, st: State, t: Tuning.Values, ms: Rig.MassState) -> ()
 
 -- Air / grip shape: Neutral blended toward Tuck, Arch and Pike (PHYSICS_DESIGN §3).
-local function airTargets(input: Input.Frame, out: { [string]: number })
+local function airTargets(input: Input.Frame, out: { [string]: number }, inAir: boolean)
 	local tW, aW, pW = Input.shapeWeights(input)
-	local N, T, A, P = POSES.Neutral, POSES.Tuck, POSES.Arch, POSES.Pike
+	local N, A, P = POSES.Neutral, POSES.Arch, POSES.Pike
+	-- off the bar the tuck brings the arms in (hands toward the shins); on the bar they stay overhead
+	local T = if inAir then POSES.AirTuck else POSES.Tuck
 	for _, name in JOINTS do
 		local n = N[name]
 		out[name] = n + tW * (T[name] - n) + aW * (A[name] - n) + pW * (P[name] - n)
@@ -298,7 +312,7 @@ local function updateSwing(sim: any, st: State, t: Tuning.Values, unitTorque: nu
 	local anchor = grip.bodyA
 	local px, py = Solver2D.worldPoint(anchor, grip.lax, grip.lay)
 	local avx, avy = Solver2D.pointVelocity(anchor, px, py)
-	local I, L, comVY, m, mx, my = 0, 0, 0, 0, 0, 0
+	local I, L, comVY, m, my = 0, 0, 0, 0, 0
 	for _, seg in rig.segments do
 		local b = seg.body
 		local rx, ry = b.x - px, b.y - py
@@ -306,21 +320,21 @@ local function updateSwing(sim: any, st: State, t: Tuning.Values, unitTorque: nu
 		L += b.inertia * b.w + b.mass * (rx * (b.vy - avy) - ry * (b.vx - avx))
 		comVY += b.mass * (b.vy - avy)
 		m += b.mass
-		mx += b.mass * rx
 		my += b.mass * ry
 	end
 	comVY /= m
-	mx /= m
 	my /= m
 	local omega = L / I
 	st.prevGripInertia = if st.gripInertia > 0 then st.gripInertia else I
 	st.gripInertia = I
 	st.swingRate = omega
-	-- energy cap: the swing may carry at most the energy of passing the bottom at
-	-- maxSwingSpeed; any excess is braked away (quickly but smoothly)
+	-- energy cap: the swing may carry at most the energy of the straight body passing the
+	-- bottom at maxSwingSpeed; any excess is braked away (quickly but smoothly). The reference
+	-- is the straight body, not the current shape: measured against the current shape, a tuck
+	-- lowered the cap as it sped the swing up, so near the cap every tuck was braked (P1.2 feedback)
 	local g = Tuning.effectiveGravity(t)
 	local energy = 0.5 * I * omega * omega + m * g * my
-	local cap = 0.5 * I * t.maxSwingSpeed * t.maxSwingSpeed - m * g * math.sqrt(mx * mx + my * my)
+	local cap = 0.5 * rig.hangInertia * t.maxSwingSpeed * t.maxSwingSpeed - m * g * rig.hangRadius
 	local excess = energy - cap
 	local tau = 0
 	if excess > 0 then
@@ -331,7 +345,9 @@ local function updateSwing(sim: any, st: State, t: Tuning.Values, unitTorque: nu
 		-- (closing while swinging up)
 		local dI = (I - st.prevGripInertia) / h
 		if t.swingAssist > 0 and dI < 0 and comVY > 0 then
-			tau += t.swingAssist * -dI * omega
+			-- never adds more energy in a step than the cap leaves room for
+			local room = -excess / max(abs(omega) * h, 1e-6)
+			tau += math.clamp(t.swingAssist * -dI * omega, -room, room)
 		end
 	end
 	st.swingAssistTorque = tau
@@ -500,8 +516,12 @@ local function pushMuscles(sim: any, st: State, t: Tuning.Values, archW: number)
 	local spinTarget = rig.facing * archW * t.jumpArchSpin * TAU -- + = counter-clockwise
 	local moment = (ms.inertia * spinTarget - ms.angularMomentum) * TAU * t.jumpSpinHertz * gs
 	local cy = st.supportY
+	-- a back-flip takeoff doesn't hold the body over its feet: the drift damping pushes the
+	-- feet forward under a body that rotates back, and its moment cancels the spin
+	fx *= 1 - archW
 	local cx = ms.cx + (moment + (cy - ms.cy) * fx) / fy
-	cx = math.clamp(cx, st.footMinX, st.footMaxX)
+	local margin = (st.footMaxX - st.footMinX) * 0.5 * (1 - PUSH_COP_RANGE)
+	cx = math.clamp(cx, st.footMinX + margin, st.footMaxX - margin)
 	st.debugCop = cx
 	st.debugMoment = moment
 	for _, name in LEG_JOINTS do
@@ -513,6 +533,25 @@ local function pushMuscles(sim: any, st: State, t: Tuning.Values, archW: number)
 		local cap = t[rj.torqueKey] * unit * t.jumpLegStrength
 		jointTorque(rj, math.clamp(tau, -cap, cap))
 	end
+end
+
+-- Optional takeoff spin assist (not muscle, off by default). The feet alone give a back-flip
+-- takeoff about half the spin a standing back flip needs; pushing harder in the push itself
+-- tips the body back while the legs extend and costs height. So the missing share is added
+-- just after takeoff instead, as a torque about the centre of mass over SPIN_ASSIST_TIME.
+function startSpinAssist(sim: any, st: State, t: Tuning.Values, ms: Rig.MassState)
+	st.spinAssistTimer = 0
+	if t.jumpSpinAssist <= 0 or st.pushArch <= 0 then
+		return
+	end
+	local target = sim.rig.facing * st.pushArch * t.jumpArchSpin * TAU -- + = counter-clockwise
+	local missing = t.jumpSpinAssist * (ms.inertia * target - ms.angularMomentum)
+	if missing * target <= 0 then
+		return -- already spinning at least that fast
+	end
+	local duration = SPIN_ASSIST_TIME / groundTimeScale(t)
+	st.spinAssistTimer = duration
+	st.spinAssistTorque = missing / duration
 end
 
 -- Optional balance assist (a separate knob, off in flight). A single planar pair of feet
@@ -560,6 +599,7 @@ local function driveGround(sim: any, st: State, input: Input.Frame, t: Tuning.Va
 	if st.wasTucking and not tucking and st.crouchDepth >= t.jumpMinCrouch and not st.absorbing then
 		st.pushTimer = t.jumpPushTime / groundTimeScale(t)
 		st.pushLean = -facing * torsoTilt(rig) / max(st.crouchDepth, 0.1)
+		st.pushArch = 0
 		event(sim, st, "push", string.format("%.2f", st.crouchDepth))
 	end
 	st.wasTucking = tucking
@@ -587,6 +627,7 @@ local function driveGround(sim: any, st: State, input: Input.Frame, t: Tuning.Va
 		end
 		smoothShape(st, goal, t, h, t.jumpHertz)
 		local _, archW, _ = Input.shapeWeights(input)
+		st.pushArch = max(st.pushArch, archW)
 		-- once the knees are straight the body is already rising: no toe-off kick (it
 		-- would add uncontrolled spin and drift); the feet simply leave the ground
 		if math.deg(Rig.jointAngle(rig.jointByName.knee, facing)) > t.jumpLockKnee then
@@ -648,7 +689,7 @@ end
 
 local function driveShape(sim: any, st: State, input: Input.Frame, t: Tuning.Values, h: number)
 	local goal = {}
-	airTargets(input, goal)
+	airTargets(input, goal, st.mode ~= "grip")
 	-- landing reflex: falling roughly upright with no shape input, the hips swing the legs
 	-- under the centre of mass (internal motion only), so a jump or drop lands on the feet
 	if st.mode == "air" and t.landingReflex > 0 and input.arch == 0 and input.tuck == 0 then
@@ -692,8 +733,27 @@ local function driveShape(sim: any, st: State, input: Input.Frame, t: Tuning.Val
 		st.targets[name] = st.shape[name]
 	end
 	-- on the bar the shoulders turn the whole hanging body, far more load than their own
-	-- segments: they get a stiffer spring there (motor springs scale with segment inertia)
-	local hertz = if st.mode == "grip" then { shoulder = t.gripShoulderHertz } else nil
+	-- segments: they get a stiffer spring there (motor springs scale with segment inertia).
+	local hertz: { [string]: number }? = nil
+	if st.mode == "grip" then
+		-- the elbows carry the same load (the bar pulls on the forearms), and the hips hold the
+		-- legs against the swing's pull. As soft as in the air they flex out under the load at the
+		-- bottom and back at the top, the reverse of pumping, which drains the swing (P1.2 feedback)
+		hertz = {
+			shoulder = t.gripShoulderHertz,
+			elbow = t.gripShoulderHertz,
+			hip = max(t.motorHertz, t.gripHipHertz),
+		}
+	else
+		-- tucking in the air is an active squeeze: firmer springs, so the tuck closes fast and
+		-- holds against the pull of the spin
+		local tW, _, pW = Input.shapeWeights(input)
+		local squeeze = min(1, tW + pW)
+		if squeeze > 0 and t.tuckHertz > t.motorHertz then
+			local hz = t.motorHertz + (t.tuckHertz - t.motorHertz) * squeeze
+			hertz = { shoulder = hz, elbow = hz, hip = hz, knee = hz }
+		end
+	end
 	Rig.drive(sim.rig, t, st.targets, { hertz = hertz })
 end
 
@@ -734,6 +794,7 @@ function Controller.step(sim: any, st: State, input: Input.Frame, h: number)
 				local impact = max(0, -min(st.prevComVY, ms.vy))
 				setMode(sim, st, "ground")
 				st.pushTimer = 0
+				st.pushArch = 0
 				st.wasTucking = false
 				local gs = groundTimeScale(t)
 				st.absorbing = impact > LANDED_SPEED * gs and t.landingAbsorbTime > 0
@@ -755,6 +816,7 @@ function Controller.step(sim: any, st: State, input: Input.Frame, h: number)
 				setMode(sim, st, "air")
 				st.halfTwists = 0
 				event(sim, st, "takeoff")
+				startSpinAssist(sim, st, t, ms)
 			end
 		elseif st.bodyContact or (st.footContacts > 0 and not upright) then
 			if st.mode ~= "fallen" then
@@ -779,6 +841,15 @@ function Controller.step(sim: any, st: State, input: Input.Frame, h: number)
 		driveShape(sim, st, input, t, h)
 		if st.mode == "grip" and sim.grip then
 			updateSwing(sim, st, t, Rig.torqueUnit(rig, t), h)
+		end
+	end
+	if st.spinAssistTimer > 0 then
+		if st.mode == "air" then
+			local now = Rig.massState(rig)
+			applyTorqueAbout(rig, now.cx, now.cy, now.inertia, st.spinAssistTorque)
+			st.spinAssistTimer -= h
+		else
+			st.spinAssistTimer = 0
 		end
 	end
 	if sim.poseOverride then

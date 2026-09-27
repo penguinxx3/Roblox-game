@@ -158,5 +158,5 @@ RunService:BindToRenderStep("GymSim", Enum.RenderPriority.Input.Value + 1, funct
 end)
 
 print(
-	"[GymClient] P1.2 movement running. Play: A/← Arch, S/↓ Tuck (on the ground: crouch, release to jump), W/↑ Let Go, Q/E Twist. Debug: R reset, 1-5 scene, V pose override, T slow-mo, G moon, P pause, N step, C contacts, F2 overlay."
+	"[GymClient] P1.2 movement running. Play: A/← Arch, S/↓ Tuck (on the ground: crouch, release to jump), W/↑ Let Go, Q/E Twist. Debug: R reset, 1-5 scene, V pose override, T slow-mo, G moon, P pause, N step, C contacts, B blind A/B (Shift+B reveal), F2 overlay."
 )

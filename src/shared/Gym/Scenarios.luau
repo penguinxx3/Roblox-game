@@ -62,13 +62,16 @@ end
 local list: { Scenario } = {
 	{
 		name = "Hang",
-		description = "Hanging from a fixed grip, released 60° from vertical. Tests swinging, joints and energy.",
+		description = "Hanging from a fixed grip, released from rest at hangStartAngle (60° by default; 0 = a still hang). Tests swinging, joints and energy.",
 		pose = "Neutral",
 		build = function(world, t)
 			local visuals = buildCourse(world, t)
 			local bar = Scenarios.BAR_HEIGHT
-			local rig =
-				Rig.build(world, t, { pivot = "grip", x = 0, y = bar, rot = math.rad(60), pose = "Neutral" })
+			local rig = Rig.build(
+				world,
+				t,
+				{ pivot = "grip", x = 0, y = bar, rot = math.rad(t.hangStartAngle), pose = "Neutral" }
+			)
 			local grip = gripJoint(world, world.ground, rig)
 			table.insert(visuals, { kind = "anchor", x = 0, y = bar, radius = 0.12 })
 			return { rig = rig, grip = grip, visuals = visuals }

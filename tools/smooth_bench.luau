@@ -144,7 +144,14 @@ local function swingJerk(over)
 	return math.sqrt(sum / n)
 end
 
-local P11 = { motorDampingRatio = 0.8, shapeFreqClose = 30, shapeFreqOpen = 30, gripShoulderHertz = 6 }
+local P11 = {
+	motorDampingRatio = 0.8,
+	shapeFreqClose = 30,
+	shapeFreqOpen = 30,
+	gripShoulderHertz = 6,
+	gripHipHertz = 6,
+	tuckHertz = 6,
+}
 local function with(base: { [string]: number }, extra: { [string]: number }): { [string]: number }
 	local o = table.clone(base)
 	for k, v in extra do
@@ -153,10 +160,12 @@ local function with(base: { [string]: number }, extra: { [string]: number }): { 
 	return o
 end
 local configs = {
-	{ "P1.1 exactly", with(P11, { limbInertiaBoost = 0 }) },
+	{ "P1.1 motor settings (current poses)", with(P11, { limbInertiaBoost = 0 }) },
 	{ "P1.1 + limb inertia boost", P11 },
 	{ "  + input smoothing 8/6 Hz", with(P11, { shapeFreqClose = 8, shapeFreqOpen = 6 }) },
-	{ "P1.2 defaults (+ motor ζ 1.25, bar shoulder)", {} },
+	{ "defaults (P1.2 + feedback round)", {} },
+	{ "  no air squeeze (tuckHertz 6)", { tuckHertz = 6 } },
+	{ "  bar hip as in the air (gripHipHertz 6)", { gripHipHertz = 6 } },
 	{ "  ζ 1.0", { motorDampingRatio = 1.0 } },
 	{ "  ζ 1.5", { motorDampingRatio = 1.5 } },
 	{ "  motor 8 Hz", { motorHertz = 8 } },

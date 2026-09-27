@@ -173,7 +173,7 @@ function DebugOverlay.update(self: DebugOverlay, sim: any, stats: Stats)
 	end
 	table.insert(
 		lines,
-		"play: A Arch  S Tuck (ground: crouch, release = jump)  W Let Go  Q/E Twist   debug: R reset  1-5 scene  V pose  T slow  G moon  P pause  N step  C contacts  F2 hide"
+		"play: A Arch  S Tuck (ground: crouch, release = jump)  W Let Go  Q/E Twist   debug: R reset  1-5 scene  V pose  T slow  G moon  P pause  N step  C contacts  B blind A/B  F2 hide"
 	)
 	self.label.Text = table.concat(lines, "\n")
 end

@@ -198,7 +198,8 @@ src/client/                     PRESENTATION ONLY (reads simulation state, never
   WorldRenderer.luau            Course, bar, wheel drawn from the solver's own shapes; contact markers
   CameraController.luau         Calm side view, smooth follow
   DebugOverlay.luau             Timing, energy, momentum, joint error, contacts, angles, movement state, input, events
-  DebugControls.luau            Debug keys/buttons (scene 1-5, pose override, slow-mo, moon, pause, step, contacts);
+  DebugControls.luau            Debug keys/buttons (scene 1-5, pose override, slow-mo, moon, pause, step, contacts,
+                                blind A/B with hidden labels);
                                 live tuning attributes (ReplicatedStorage.GymTuning)
 src/server/init.server.luau     Runs the quick self-test in Studio on Play; nothing else
 tests/run.luau                  Headless test runner (Lune)
@@ -207,6 +208,7 @@ tools/client_harness.luau       Runs the BUILT place's client headlessly with en
 tools/inspect_place.luau        Prints the built place tree
 tools/solver_bench.luau         Solver settings comparison (stretch / energy / cost)
 tools/smooth_bench.luau         (P1.2) Smoothness comparison (response / overshoot / wobble / jerk / tuck gain)
+tools/flip_bench.luau           (P1.2 playtest round 1) Standing jumps, bar-release flips, held-shape swing drain, pumping from a still hang
 tools/lune_mirror.luau          Mirrors src/shared into build/lune for Lune (rewrites Roblox requires to file paths)
 ```
 

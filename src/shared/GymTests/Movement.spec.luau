@@ -85,8 +85,15 @@ return function(T: any)
 		return sim
 	end
 
-	-- Crouch for `hold` seconds and release (a jump). Returns a summary.
-	local function jump(overrides: { [string]: number }?, hold: number, extra: number?): any
+	-- Crouch for `hold` seconds and release (a jump). Returns a summary. `opts.arch`: hold Arch
+	-- through the release (a back-flip takeoff); `opts.tuckInAir`: tuck from takeoff to landing.
+	local function jump(
+		overrides: { [string]: number }?,
+		hold: number,
+		extra: number?,
+		opts: { arch: boolean?, tuckInAir: boolean? }?
+	): any
+		local o: { arch: boolean?, tuckInAir: boolean? } = opts or {}
 		local sim = player("Stand", overrides)
 		local inp = Input.new()
 		local r = {
@@ -95,6 +102,7 @@ return function(T: any)
 			takeoffVX = 0,
 			takeoffSpin = 0,
 			airtime = 0,
+			rotation = 0, -- trunk rotation from takeoff to landing (rev, + = counter-clockwise)
 			lowest = math.huge,
 			events = "",
 			finalMode = "",
@@ -107,8 +115,19 @@ return function(T: any)
 		local maxY, takeoff, land = y0, nil :: number?, nil :: number?
 		local total = 1.0 + hold + (extra or 3)
 		local all = {}
+		local prevA, turned = sim.rig.torso.a, 0
 		run(sim, inp, total - 1.0, function(s, i)
-			i.tuck = if s.time < 1.0 + hold then 1 else 0
+			local release = 1.0 + hold
+			i.tuck = if s.time < release then 1 else 0
+			i.arch = if o.arch and s.time >= release - 0.05 and takeoff == nil then 1 else 0
+			if o.tuckInAir and takeoff and not land then
+				i.tuck, i.arch = 1, 0
+			end
+			local a = s.rig.torso.a
+			if takeoff and not land then
+				turned += (a - prevA + math.pi) % TAU - math.pi
+			end
+			prevA = a
 			local ms = Rig.massState(s.rig)
 			if c.mode == "air" and takeoff == nil then
 				takeoff = s.time
@@ -127,6 +146,7 @@ return function(T: any)
 			end
 		end)
 		r.rise = maxY - y0
+		r.rotation = turned / TAU
 		r.airtime = if takeoff and land then land - takeoff else 0
 		r.events = kinds(all)
 		r.finalMode = c.mode
@@ -169,6 +189,14 @@ return function(T: any)
 			-- Tuck closes it: hips and knees fold
 			T.above(tuck.hip, neutral.hip + 70, `{setup}: tuck hip`)
 			T.above(tuck.knee, neutral.knee + 70, `{setup}: tuck knee`)
+			-- in the air the arms wrap in toward the shins (compact); on the bar they stay overhead
+			T.note(`{setup} tuck shoulder/elbow`, string.format("%.0f/%.0f", tuck.shoulder, tuck.elbow))
+			if setup == "bar" then
+				T.below(tuck.shoulder, 45, "bar: the tuck keeps the arms overhead")
+			else
+				T.above(tuck.shoulder, 70, `{setup}: the air tuck brings the arms in`)
+				T.above(tuck.elbow, 30, `{setup}: the air tuck bends the elbows`)
+			end
 			-- Pike: hips fold with straight knees
 			T.above(pike.hip, neutral.hip + 60, `{setup}: pike hip`)
 			T.below(pike.knee, 30, `{setup}: pike knee`)
@@ -182,10 +210,13 @@ return function(T: any)
 		local open = spinRev(sim)
 		local ms0 = Rig.massState(sim.rig)
 		local t0 = sim.time
-		local best, worstDrift = 0, 0
+		local best, worstDrift, early = 0, 0, 0
 		run(sim, inp, 0.5, function(s, i)
 			i.tuck = 1
 			local ms = Rig.massState(s.rig)
+			if s.time - t0 <= 0.1 + 1e-9 then
+				early = ms.angularMomentum / ms.inertia / TAU
+			end
 			best = math.max(best, ms.angularMomentum / ms.inertia / TAU)
 			worstDrift = math.max(worstDrift, math.abs(ms.angularMomentum / ms0.angularMomentum - 1))
 		end)
@@ -194,9 +225,15 @@ return function(T: any)
 		T.note("openSpin(rev/s)", open)
 		T.note("tuckedSpin(rev/s)", best)
 		T.note("gain", best / open)
+		T.note("gain 0.1 s after pressing", early / open)
 		T.note("angularMomentumDrift%", worstDrift * 100)
 		T.expect(sim.controller.mode == "air", "left the air during the test")
-		T.above(best / open, 1.4, "tuck spin gain (reference ≈ 1.6×)")
+		-- a full, arms-in tuck: ≈2.2× (a real tight tuck from a straight body gives 2.5-3.5×;
+		-- the reference clips showed 1.4-1.9×, with partial tucks)
+		T.above(best / open, 1.4, "tuck spin gain")
+		T.below(best / open, 3, "tuck spin gain (physically plausible)")
+		-- responsive: most of the gain within 0.1 s (P1.1 1.48×; P1.2 as first tested 1.17×)
+		T.above(early / open, 1.3, "tuck spin gain 0.1 s after pressing")
 		T.below(worstDrift, 0.005, "angular momentum drift in flight")
 		-- shape changes are internal: the centre of mass keeps its ballistic velocity
 		T.near(ms1.vx, ms0.vx, 1e-6, "horizontal velocity")
@@ -234,26 +271,118 @@ return function(T: any)
 		T.below(outPhase, none - 15, "out-of-phase pumping damps it")
 	end)
 
-	T.test("swing limits: maxSwingSpeed caps rotation about the grip; gripFriction removes energy", function()
+	T.test("pumping: held shapes don't drain the swing; from a still hang pumping reaches a giant", function()
+		-- swing angle and angular momentum about the grip (the bar is at x = 0)
+		local function swingState(s: any): (number, number)
+			local ms = Rig.massState(s.rig)
+			local L = 0
+			for _, seg in s.rig.segments do
+				local b = seg.body
+				L += b.inertia * b.w + b.mass * (b.x * b.vy - (b.y - BAR) * b.vx)
+			end
+			return math.atan2(ms.cx, BAR - ms.cy), L
+		end
+		-- holding a shape from 90°: loss per full cycle (degrees), from half swings 2 to 6 (the
+		-- first includes the shape change itself). Soft hips sagged at the bottom of each swing
+		-- and sprang back at the top, the reverse of pumping (P1.2 feedback)
+		local function heldLoss(arch: number, tuck: number): number
+			local sim = player("Hang", { hangStartAngle = 90 })
+			local inp = Input.new()
+			inp.arch, inp.tuck = arch, tuck
+			local peaks, peak, lastSign = {}, 0, 0
+			run(sim, inp, 9, function(s)
+				local ang, L = swingState(s)
+				peak = math.max(peak, math.abs(math.deg(ang)))
+				local sign = if L > 0 then 1 else -1
+				if lastSign ~= 0 and sign ~= lastSign then
+					table.insert(peaks, peak)
+					peak = 0
+				end
+				lastSign = sign
+			end)
+			return (peaks[2] - peaks[6]) / 2
+		end
+		local none, tuck, pike = heldLoss(0, 0), heldLoss(0, 1), heldLoss(1, 1)
+		T.note(
+			"loss per cycle at 90° (deg): relaxed/tuck/pike",
+			string.format("%.1f/%.1f/%.1f", none, tuck, pike)
+		)
+		T.below(tuck - none, 4, "holding Tuck drains the swing")
+		T.below(pike - none, 5, "holding Pike drains the swing")
+
+		-- hangStartAngle 0: a still hang
+		local still = player("Hang", { hangStartAngle = 0 })
+		local stillPeak = 0
+		run(still, Input.new(), 3, function(s)
+			stillPeak = math.max(stillPeak, math.abs(math.deg((swingState(s)))))
+		end)
+		T.note("still hang: largest angle in 3 s", stillPeak)
+		T.below(stillPeak, 5, "hangStartAngle 0 starts still")
+
+		-- from the still hang, tuck while rising through the lower half and open otherwise:
+		-- the swing must keep growing (no plateau short of a giant)
+		local sim = player("Hang", { hangStartAngle = 0 })
+		local reached90, overTop = nil :: number?, nil :: number?
+		run(sim, Input.new(), 20, function(s, i)
+			local ang, L = swingState(s)
+			local rising = math.cos(ang) > 0 and ang * L > 0
+			i.tuck = if rising then 1 else 0
+			i.arch = 1 - i.tuck
+			if math.abs(ang) > math.rad(90) and reached90 == nil then
+				reached90 = s.time
+			end
+			if math.abs(ang) > math.rad(175) and overTop == nil then
+				overTop = s.time
+			end
+		end)
+		T.note("from a still hang: 90° at (s)", reached90 or -1)
+		T.note("from a still hang: over the top at (s)", overTop or -1)
+		T.expect(
+			reached90 ~= nil and (reached90 :: number) < 15,
+			"pumping from a still hang passes horizontal"
+		)
+		T.expect(overTop ~= nil, "pumping from a still hang reaches a giant swing within 20 s")
+	end)
+
+	T.test("swing limits: maxSwingSpeed caps the swing's energy; gripFriction removes energy", function()
+		-- the cap: at most the energy of the straight body passing the bottom at maxSwingSpeed.
+		-- Measured on the rigid swing about the grip, above the straight hang at rest. (A tucked
+		-- body with that energy spins faster than maxSwingSpeed, as it should.)
 		local function pumped(overrides: { [string]: number }, seconds: number): (number, number)
 			local sim = player("Hang", overrides)
+			local rig, t = sim.rig, sim.tuning
+			local g = Tuning.effectiveGravity(t)
+			local capEnergy = 0.5 * rig.hangInertia * t.maxSwingSpeed * t.maxSwingSpeed
 			local inp = Input.new()
-			local maxRate, peak = 0, 0
+			local maxRate, worst = 0, 0
 			run(sim, inp, seconds, function(s, i)
 				local ms = Rig.massState(s.rig)
-				local rising = ms.cx * ms.vx > 0
+				local I, L = 0, 0
+				for _, seg in s.rig.segments do
+					local b = seg.body
+					local rx, ry = b.x, b.y - BAR
+					I += b.inertia + b.mass * (rx * rx + ry * ry)
+					L += b.inertia * b.w + b.mass * (rx * b.vy - ry * b.vx)
+				end
+				-- pump by the swing angle and direction (works past horizontal and in giants):
+				-- tuck while rising through the lower half, open otherwise
+				local ang = math.atan2(ms.cx, BAR - ms.cy)
+				local rising = math.cos(ang) > 0 and ang * L > 0
 				i.tuck = if rising then 1 else 0
 				i.arch = if rising then 0 else 1
 				maxRate = math.max(maxRate, math.abs(s.controller.swingRate))
-				if s.time > seconds - 4 then
-					peak = math.max(peak, math.abs(math.deg(math.atan2(ms.cx, BAR - ms.cy))))
-				end
+				local energy = 0.5 * L * L / I + rig.mass * g * (ms.cy - BAR + rig.hangRadius)
+				worst = math.max(worst, energy / capEnergy)
 			end)
-			return maxRate, peak
+			return worst, maxRate
 		end
-		local capped = pumped({ swingAssist = 2, maxSwingSpeed = 6 }, 20)
-		T.note("maxSwingRate with cap 6 rad/s", capped)
-		T.below(capped, 6 * 1.1, "swing rate above the energy cap")
+		local worst, rate = pumped({ swingAssist = 2, maxSwingSpeed = 6 }, 20)
+		T.note("max swing energy / cap, cap 6 rad/s with assist", worst)
+		T.note("max swing rate (rad/s)", rate)
+		T.below(worst, 1.1, "swing energy above the cap")
+		local worst2 = pumped({ maxSwingSpeed = 6 }, 20)
+		T.note("max swing energy / cap, cap 6 rad/s, pumping alone", worst2)
+		T.below(worst2, 1.1, "swing energy above the cap (pumping alone)")
 		local function decay(friction: number): number
 			local sim = player("Hang", { gripFriction = friction })
 			local peak = 0
@@ -278,7 +407,7 @@ return function(T: any)
 	T.test(
 		"Let Go keeps momentum exactly (defaults are pure physics); shaping knobs act as specified",
 		function()
-			local function releaseStep(overrides: { [string]: number }?): (any, any, any)
+			local function releaseStep(overrides: { [string]: number }?, at: number?): (any, any, any)
 				-- no air damping, so the check is exact: only gravity acts during the release step
 				local o: { [string]: number } = { angularDamping = 0 }
 				for k, v in (overrides or {}) :: { [string]: number } do
@@ -286,27 +415,41 @@ return function(T: any)
 				end
 				local sim = player("Hang", o)
 				local inp = Input.new()
-				run(sim, inp, 0.9)
+				run(sim, inp, at or 0.9)
 				local before = Rig.massState(sim.rig)
 				inp.letGoPresses += 1
 				Sim.setInput(sim, inp)
 				Sim.stepOnce(sim)
 				return sim, before, Rig.massState(sim.rig)
 			end
-			local sim, b, a = releaseStep(nil)
+			local worstL = 0
+			for _, at in { 0.5, 0.7, 0.9, 1.1, 1.3 } do
+				local sim, b, a = releaseStep(nil, at)
+				local g = Tuning.effectiveGravity(sim.tuning)
+				if at == 0.9 then
+					T.expect(
+						sim.grip == nil and sim.controller.mode == "air",
+						"should be released and airborne"
+					)
+					T.expect(kinds(Sim.drainEvents(sim)) == "release", "exactly one release event")
+					T.note("releaseSpeed", math.sqrt(b.vx * b.vx + b.vy * b.vy))
+				end
+				-- the release step changes momentum only by gravity (and nothing about the centre of mass)
+				T.near(a.vx, b.vx, 1e-9, "horizontal velocity at release")
+				T.near(a.vy, b.vy - g * sim.h, 1e-9, "vertical velocity at release")
+				-- internal joint impulses conserve angular momentum up to the solver's joint error:
+				-- ~1e-8 per ordinary step, ~1e-6 on the release step, when the arm joints suddenly
+				-- stop carrying the body (P1.2 feedback: 1e-6 was met only at some release times).
+				-- Any release shaping would show at the 1e-1 level.
+				worstL = math.max(
+					worstL,
+					math.abs(a.angularMomentum - b.angularMomentum) / math.abs(b.angularMomentum)
+				)
+			end
+			T.note("worst relative angular momentum change at release", worstL)
+			T.below(worstL, 1e-5, "angular momentum at release")
+			local sim = player("Hang")
 			local g = Tuning.effectiveGravity(sim.tuning)
-			T.expect(sim.grip == nil and sim.controller.mode == "air", "should be released and airborne")
-			T.expect(kinds(Sim.drainEvents(sim)) == "release", "exactly one release event")
-			-- the release step changes momentum only by gravity (and nothing about the centre of mass)
-			T.near(a.vx, b.vx, 1e-9, "horizontal velocity at release")
-			T.near(a.vy, b.vy - g * sim.h, 1e-9, "vertical velocity at release")
-			T.near(
-				a.angularMomentum,
-				b.angularMomentum,
-				1e-6 * math.abs(b.angularMomentum),
-				"angular momentum"
-			)
-			T.note("releaseSpeed", math.sqrt(b.vx * b.vx + b.vy * b.vy))
 			-- shaping (opt-in): velocity scale, upward pop and spin scale about the centre of mass
 			local _, b2, a2 =
 				releaseStep({ releaseVelocityScale = 1.2, releasePop = 5, releaseSpinScale = 1.5 })
@@ -517,6 +660,33 @@ return function(T: any)
 			T.expect(not string.find(tap.events, "push"), `a tap should not jump: {tap.events}`)
 		end
 	)
+
+	T.test("back-flip takeoff: Arch through the push spins backward without losing height", function()
+		local plain = jump(nil, 0.6)
+		local arch = jump(nil, 0.6, 3, { arch = true, tuckInAir = true })
+		local back = arch.sim.rig.facing -- backward spin is counter-clockwise when facing +x
+		T.note("plain rise / arch rise", string.format("%.2f / %.2f", plain.rise, arch.rise))
+		T.note("arch takeoff spin (rev/s, + = backward)", back * arch.takeoffSpin)
+		T.note("arch + tuck rotation before landing (rev)", back * arch.rotation)
+		-- pinned at the toe edge, the ankles tipped the body onto its toes and the knees stopped
+		-- extending: the Arch jump lost a third of its height (P1.2 feedback)
+		T.above(arch.rise, 0.85 * plain.rise, "an Arch takeoff keeps the jump height")
+		T.above(back * arch.takeoffSpin, 0.3, "backward takeoff spin from the feet")
+		-- the optional spin assist: a standing back tuck gets about a full turn; plain jumps unchanged
+		local assisted = jump({ jumpSpinAssist = 1 }, 0.6, 3, { arch = true, tuckInAir = true })
+		T.note(
+			"assisted rotation (rev) / rise / end",
+			string.format("%.2f / %.2f / %s", back * assisted.rotation, assisted.rise, assisted.finalMode)
+		)
+		T.above(back * assisted.rotation, 0.75, "assisted standing back tuck rotation")
+		T.above(assisted.rise, 0.85 * plain.rise, "the assist keeps the jump height")
+		local plainAssisted = jump({ jumpSpinAssist = 1 }, 0.6)
+		T.below(math.abs(plainAssisted.takeoffSpin), 0.2, "the assist leaves plain jumps alone")
+		T.expect(
+			plainAssisted.finalMode == "ground",
+			`plain jump with the assist ended {plainAssisted.finalMode}`
+		)
+	end)
 
 	T.test("ground/air transitions: no flicker standing, landing from a drop, or holding a crouch", function()
 		-- lift a standing body 2 studs and let it drop onto its feet

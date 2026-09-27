@@ -58,27 +58,27 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 
 ## P1.2 status — movement control
 
-**All layers pass** (2026-09-26, cloud environment):
+**All layers pass** (2026-09-27, cloud environment, after playtest feedback round 1; see [PLAYTEST_P1_2.md](PLAYTEST_P1_2.md)):
 
 | Layer | Result |
 |---|---|
-| 1. Headless tests (`lune run tests/run.luau`) | **58 / 58** (the 40 P1.1 tests, the auto-added `Stand` scene check, 17 movement tests) |
-| 2. Built-place self-test (`--full`) | **58 / 58** through Roblox-style instance `require` |
-| 3. Client harness | **65 / 65** checks: 5 scenes, every debug control, and now gameplay input: keyboard holds and presses, gamepad analog trigger and buttons, touch layout (two thumbs at once, touch-down Let Go), crouch-and-release jump that lands, twist through a half-twist snap with continuous part motion |
+| 1. Headless tests (`lune run tests/run.luau`) | **60 / 60** (the 40 P1.1 tests, the auto-added `Stand` scene check, 19 movement tests) |
+| 2. Built-place self-test (`--full`) | **60 / 60** through Roblox-style instance `require` (quick mode: 56 passed, 4 slow ones skipped) |
+| 3. Client harness | **70 / 70** checks: 5 scenes, every debug control including the blind A/B (hidden labels, switch by key and button, Shift+B reveal), and gameplay input: keyboard holds and presses, gamepad analog trigger and buttons, touch layout (two thumbs at once, touch-down Let Go), crouch-and-release jump that lands, twist through a half-twist snap with continuous part motion |
 | Static analysis (luau-lsp, strict) | **0 errors** |
 | Formatting (StyLua) | clean |
 | 4. In-Studio self-test and look/feel | **pending** (STUDIO_VALIDATION.md §P1.2) |
 
 (selene still can't download Roblox's API dump offline; luau-lsp covers typing.)
 
-**P1.2 movement tests (`Movement.spec`, 17), mapped to what was asked:**
+**P1.2 movement tests (`Movement.spec`, 19), mapped to what was asked.** The results are as of feedback round 1; the numbers first reported for P1.2 are in the notes below the table.
 
 | Requirement | Test | Result |
 |---|---|---|
-| Arch changes the body the intended way | Arch, Tuck and Pike bend the body the intended way (air, bar, after a half twist) | Air: hip 8° → −29° (arch), 124° (tuck), 108° (pike); shoulder 7° → −22°. Bar: hip 5° → −21° / 112° / 75°; shoulder 6° → −21°. Identical after a mirror (facing flipped). |
-| Tuck rotates faster than open | Tuck spins faster; momentum conserved | 1.11 → 1.72 rev/s (**×1.54**; reference ≈ 1.6); angular momentum drift 0.001%; centre-of-mass velocity changes only by gravity (1e-6) |
+| Arch changes the body the intended way | Arch, Tuck and Pike bend the body the intended way (air, bar, after a half twist) | Air: hip 8° → −29° (arch), 126° (tuck), 109° (pike); shoulder 7° → −22°. Bar: hip 6° → −28° / 127° / 111°; shoulder 4° → −22°. **Air tuck brings the arms in** (shoulder 112°, elbow 61°); **bar tuck keeps them overhead** (26°). Identical after a mirror (facing flipped). |
+| Tuck rotates faster than open | Tuck spins faster; momentum conserved | 1.11 → 2.50 rev/s (**×2.24**; must be 1.4–3), **×1.44 0.1 s after pressing** (must be ≥ 1.3; P1.2 as first tested ×1.17, P1.1 ×1.48); angular momentum drift 0.008%; centre-of-mass velocity changes only by gravity (1e-6) |
 | Twist changes orientation without breaking the 2D plane | Rig.mirror conserves…; Twist turns the body…; twist modes | Mirror: COM, momentum, angular momentum, kinetic energy exact to 1e-9; joints attached; anatomical angles unchanged. Twisting: ≥ 1 half twist in 0.5 s, **rendered points jump ≤ 1.3e-15 studs across the snap**, angular momentum drift 0.0007%, state finite and planar every step; releases hold the angle; both buttons hold; momentum mode taps start, reverse, stop; no twist on the bar |
-| Let Go preserves momentum | Let Go keeps momentum exactly… | Release step: Δvx = 0, Δvy = −g·h, ΔL = 0 (1e-9); opt-in shaping scales exactly as specified; Let Go in the air and Grab (pre-P1.3) change nothing (bit-identical) |
+| Let Go preserves momentum | Let Go keeps momentum exactly… | Release step at 5 release times: Δvx = 0 and Δvy = −g·h (1e-9); relative ΔL ≤ 4.7e-6 (bound 1e-5, see below); opt-in shaping scales exactly as specified; Let Go in the air and Grab (pre-P1.3) change nothing (bit-identical) |
 | Jumping consistent across frame rates | jumping is identical at any frame rate… | Input keyed to simulation time: **bit-identical** at 30/60/144/240 fps and jittery frames. Input sampled per frame (as on a device, the release quantized to a frame): apex within 0.011 studs of 240 fps (≤ 0.7%) |
 | Grounded/airborne transitions stable | ground/air transitions…; jump… | Standing 10 s: no events. 2-stud drop: exactly one `landing`, ends standing. Holding a crouch 3 s: no events. Jumps: exactly `push, takeoff, landing` |
 | Movement inputs frame-rate independent | presses are never lost or doubled… | Let Go pressed on a zero-step frame in 0.25× slow motion fires at the next step, exactly once; two presses in one frame = one release; a press during pause fires after unpausing; a press before Reset never fires after it; NaN/∞ input levels sanitized |
@@ -86,12 +86,24 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 | No new tunneling / floor penetration | jump; transitions; both soaks | lowest body surface ≥ −0.1 studs through jumps and drops; soak penetration ≤ 0.19 (P1.1 threshold 0.3) |
 | P1.1 tests still pass | all 40 | pass (see below for what moved) |
 | Standing | standing: holds still 10 s, recovers from shoves, stands on muscle alone | COM held over the feet to 1.5e-6 studs; ±3 studs/s shoves recover; `balanceAssist` = 0 still stands 10 s undisturbed |
-| Jumping | jump: releasing Tuck from a crouch… | rise 1.42 / 1.54 studs (0.3 / 0.8 s crouch), takeoff spin 0.08 rev/s, drift 1.2 studs/s, lands, back to standing height; a 0.08 s tap does not jump |
-| Pumping (A4, partial) | pumping: in phase builds, out of phase damps | peak swing angle after 15 s from 60°: no input 50°, **in phase 121°**, out of phase 18° |
-| Swing limits | swing limits… | energy cap holds 6 rad/s to 6.40 even with `swingAssist` 2; grip friction 0.2 → 12° vs 57° after 8 s |
-| Moon | moon gravity… | g = 5.775 exactly; fixed-launch apex ×6.07 (expected 6.06); muscle jump (default) 1.95 studs / 1.41 s vs Earth 1.69 / 0.51; fixed strength 7.04 / 2.93 |
+| Jumping | jump: releasing Tuck from a crouch… | rise 1.52 / 1.57 studs (0.3 / 0.8 s crouch), takeoff spin ≤ 0.04 rev/s, drift 0.9 studs/s, lands, back to standing height; a 0.08 s tap does not jump |
+| Back-flip takeoff | back-flip takeoff: Arch through the push… | Arch rise 1.78 vs plain 1.73 (must be ≥ 85%); backward takeoff spin 0.38 rev/s (≥ 0.3); rotation with a tuck 0.43 rev. `jumpSpinAssist` 1: 0.87 rev (≥ 0.75), full height, lands on the feet; plain jumps with the assist unchanged |
+| Pumping (A4) | pumping: in phase builds, out of phase damps | peak swing angle after 15 s from 60°: no input 50°, **in phase 145°**, out of phase 8° |
+| Pumping (A4): no drain, from nothing to a giant | pumping: held shapes don't drain the swing; from a still hang… | loss per cycle at 90°: relaxed / Tuck / Pike 2.3° / 4.1° / 5.6° (extra over relaxed must be ≤ 4° / ≤ 5°; was 3.7° / 6.8° / 10.7°). `hangStartAngle` 0 stays within 0.8°. From a still hang: 90° at 11.9 s (≤ 15), **over the top at 15.2 s** (≤ 20; P1.2 as first tested stalled at ≈ 107°) |
+| Swing limits | swing limits… | the energy cap (straight body passing the bottom at `maxSwingSpeed`) holds a 6 rad/s cap to **1.08× its energy**, with `swingAssist` 2 and with pumping alone (bound 1.1); grip friction 0.2 → 7° vs 58° after 8 s |
+| Moon | moon gravity… | g = 5.775 exactly; fixed-launch apex ×6.07 (expected 6.06); muscle jump (default) 2.00 studs / 1.47 s vs Earth 1.73 / 0.53; fixed strength 7.04 / 2.93 |
 | Smoothness | smoothing: targets move continuously | largest per-step target change 10.0° (default) vs 36.4° without smoothing |
 | Determinism | determinism: same inputs → bit-identical | pass |
+
+**Changed in playtest feedback round 1** (PLAYTEST_P1_2.md; all layers above re-run):
+- New tests: *back-flip takeoff* and *pumping: held shapes don't drain the swing; from a still hang pumping reaches a giant*.
+- Extended tests: shapes (air-tuck arms, bar-tuck arms); tuck (the 0.1 s gain, and a physical ceiling of 3×).
+- **Swing limits: the cap is now checked in energy**, which is what it bounds. It used to be checked as a rate: the old cap compared the swing's energy with the current shape, which braked every tuck near the cap. Measured against the straight body, a tucked body with the capped energy correctly spins faster than the cap rate (6.7 rad/s at a 6 rad/s cap). The bound, 1.1× the cap's energy, is ≈ 1.05× in speed: tighter than before.
+- **Let Go, angular momentum: the bound changed from 1e-6 to 1e-5, and now covers 5 release times instead of 1.**
+  - Investigation: an ordinary air step changes angular momentum by ~1e-8 (solver joint error). The release step changes it by ~1e-6, because the arm joints suddenly stop carrying the body.
+  - The playtested build already reached 2.4e-6 at a release at 1.1 s; the single 0.9 s case happened to pass.
+  - With the firmer bar elbows the worst of the 5 cases is 4.7e-6. Any release shaping shows at the 1e-1 level, so 1e-5 still proves "no shaping".
+- `tools/flip_bench.luau` (new) reproduces the playtest numbers: standing jumps, bar-release flips, held-shape drain, pumping from a still hang.
 
 **What changed in the P1.1 results (all still pass, same thresholds):**
 - **Stability soak (A1).** The first P1.2 run failed: *moon Tumble, default settings: limit violation 12.1° > 8°*. Investigation: the rig refactor changed initial positions by ~1e-16 (cos(π/2) is not exactly 0), and this chaotic 60 s run then hit a light foot jammed on a block corner under a violent kick. Re-running the P1.1 code over 20–40 seeds showed the 8° bound was exceeded by P1.1 too (up to 14.5°) at every solver setting (substeps 4/6/8, relax 1/2, contact stiffness), so the 8° pass was a lucky single sample. The cause is conditioning: a 0.2-mass foot or 0.45-mass forearm carrying the body's load. Giving the light segments extra rotational inertia (`limbInertiaBoost`) cut the worst case across 160 runs to 2.7° with no CPU cost, so the threshold did not need to change. Now: default settings joint ≤ 0.016, limits ≤ 1.5°, penetration ≤ 0.05.
@@ -113,13 +125,32 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 
 Reading: damping removes the overshoot and lingering wobble at no response cost; input smoothing removes the target snaps (a third of the jerk while pumping); stiffer motors (8 Hz) are what bring the tuck to the reference's ≈1.6×. Motor stiffness is left at the playtested 6 Hz; 8 Hz is a candidate for the P1.2 playtest.
 
-**Known issues and tuning items found by the P1.2 tests:**
-1. **Pumping to a giant (A4) is not met with pure physics.** A simple scripted pumper (Tuck while rising, Arch while falling) plateaus at 100–140° and never goes over the top in 40 s. `swingAssist` 0.5 goes over in ~3 swings, motor 8 Hz in ~5. Decide in the P1.2 playtest (better technique, stiffer motors, or a small assist).
-2. **Tuck gain ×1.52 (air, fast spin)** vs the reference's ≈1.6: under a fast spin the springy hips don't reach the full tuck (~95–110° of 125°). Motor 8 Hz gives ×1.62.
+After feedback round 1 (the benchmark's air test now uses the arms-in air tuck):
+
+| Settings | Response | Overshoot | Wobble | Joint jerk | Tuck gain | Swing jerk |
+|---|---|---|---|---|---|---|
+| P1.2 as first playtested (commit 15fdbb0) | 0.19 s | 7.0° | 0.9° | 115,243 | 1.52× | 2,022 |
+| **Defaults after round 1** | 0.20 s | 23.0° | 1.6° | 195,260 | **2.13×** | 4,082 |
+| … without the air squeeze (`tuckHertz` 6) | 0.20 s | 13.0° | 1.3° | 154,653 | 1.76× | 4,082 |
+| … bar hips as in the air (`gripHipHertz` 6) | 0.20 s | 23.0° | 1.6° | 195,260 | 2.13× | 1,239 |
+| … motor ζ 1.5 | 0.20 s | 21.2° | 1.0° | 133,874 | 2.12× | 2,699 |
+| … motor 8 Hz | 0.20 s | 36.8° | 1.9° | 209,639 | 2.12× | 3,121 |
+| P1.1 motor settings (current poses) | 0.19 s | 26.0° | 2.7° | 241,856 | 1.63× | 3,200 |
+
+Reading: the tester asked for a quicker, more compact tuck and a swing that doesn't fight them. Both cost some smoothness:
+- The air squeeze adds overshoot.
+- The firmer bar hips make pumping livelier (torso jerk ×2). Softening them back brings the swing drain back.
+
+Both are still within the P1.1 motor settings' range. `motorDampingRatio` 1.5 is the live knob for a calmer feel.
+
+**Known issues and tuning items found by the P1.2 tests** (status after feedback round 1 in bold):
+1. **Pumping to a giant (A4) is not met with pure physics.** A simple scripted pumper (Tuck while rising, Arch while falling) plateaus at 100–140° and never goes over the top in 40 s. `swingAssist` 0.5 goes over in ~3 swings, motor 8 Hz in ~5. **Resolved:** the plateau came from soft bar elbows and hips draining the swing; pumping now reaches a giant from a still hang in ~12–15 s with pure physics (tested).
+2. **Tuck gain ×1.52 (air, fast spin)** vs the reference's ≈1.6: under a fast spin the springy hips don't reach the full tuck (~95–110° of 125°). Motor 8 Hz gives ×1.62. **Resolved:** arms-in air tuck plus squeeze: ×2.2, and ×1.44 after 0.1 s.
 3. **Balance recovery relies on `balanceAssist`** for anything but a still stand (no stepping). With the assist: ±4 studs/s shoves recover; without it, ≥ 1 stud/s shoves topple.
 4. **Jumps drift forward ~1.2 studs/s** (the push isn't perfectly vertical); landings still stand thanks to the landing reflex.
 5. **Moon standing** tolerates ±2 studs/s shoves (±5 in Earth terms); ±3 falls. Scene `Drop` on the moon falls (its fixed initial spin tips the body 47° over the long fall); on Earth it lands and stands.
-6. **Arch jump spin** (`jumpArchSpin` 0.8 rev/s target) only reaches ~0.15 rev/s: the centre of pressure saturates at the toe and the arm swing fights it. Back flips from standing need tuning (or an input design decision) before they are a feature.
+6. **Arch jump spin** (`jumpArchSpin` 0.8 rev/s target) only reaches ~0.15 rev/s: the centre of pressure saturates at the toe and the arm swing fights it. Back flips from standing need tuning (or an input design decision) before they are a feature. **Partly resolved:** the Arch takeoff keeps its height and spins at 0.38 rev/s (≈ 0.43 rev with a tuck). A full standing back tuck needs the optional `jumpSpinAssist` (1 → 0.87 rev, lands) or a real lean-back takeoff (Phase 2). The decision is open (PLAYTEST_P1_2.md).
+7. **Feedback round 1 trade-off:** the tuck squeeze and firmer bar hips cost some smoothness (table above). To be judged in the next playtest.
 
 ## 2. Layer A — automated core tests (Lune, headless)
 

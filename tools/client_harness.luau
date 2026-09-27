@@ -103,6 +103,12 @@ if not okTouch then
 	end)
 end
 
+-- keyboard modifier state for IsKeyDown (the blind A/B reveal is Shift+B)
+local shiftDown = false
+roblox.implementMethod("UserInputService", "IsKeyDown", function(_, code)
+	return shiftDown and code.Name == "LeftShift"
+end)
+
 local players = game:GetService("Players")
 local player = Instance.new("Player")
 player.Name = "HarnessPlayer"
@@ -379,6 +385,29 @@ if tuning then
 		freshOverlay():find("sim 120Hz", 1, true) ~= nil,
 		"reset-only param (simHz=120) applied after Reset"
 	)
+end
+
+-- Blind A/B (P1.2 feedback): hidden labels, switch by key or button, reveal with Shift+B
+do
+	local E = roblox.Enum
+	key(E.KeyCode.B)
+	frames(5)
+	local text = freshOverlay()
+	check(text:find("blind A/B: now A", 1, true) ~= nil, "key B starts the blind A/B at A")
+	check(text:find("motorHertz", 1, true) == nil, "the A/B label hides the value")
+	press("A/B")
+	frames(5)
+	check(freshOverlay():find("blind A/B: now B", 1, true) ~= nil, "A/B button switches to B")
+	shiftDown = true
+	key(E.KeyCode.B)
+	shiftDown = false
+	frames(5)
+	local a, b = freshOverlay():match("A = motorHertz (%d+), B = motorHertz (%d+)")
+	check(
+		(a == "6" and b == "8") or (a == "8" and b == "6"),
+		`Shift+B reveals the mapping (A={tostring(a)}, B={tostring(b)})`
+	)
+	check(freshOverlay():find("now B", 1, true) ~= nil, "reveal keeps the current variant (B)")
 end
 
 -- Gameplay input (P1.2): keyboard, gamepad and touch through InputRouter --------------------
