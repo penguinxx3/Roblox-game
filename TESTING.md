@@ -62,16 +62,16 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 
 | Layer | Result |
 |---|---|
-| 1. Headless tests (`lune run tests/run.luau`) | **62 / 62** (the 40 P1.1 tests, the auto-added `Stand` scene check, 21 movement tests) |
-| 2. Built-place self-test (`--full`) | **62 / 62** through Roblox-style instance `require` (quick mode: 58 passed, 4 slow ones skipped) |
-| 3. Client harness | **71 / 71** checks: 5 scenes, every debug control including the blind A/B (hidden labels, switch by key and button, Shift+B reveal with time played per variant and switch count), and gameplay input: keyboard holds and presses, gamepad analog trigger and buttons, touch layout (two thumbs at once, touch-down Let Go), crouch-and-release jump that lands, twist through a half-twist snap with continuous part motion |
+| 1. Headless tests (`lune run tests/run.luau`) | **63 / 63** (the 40 P1.1 tests, the auto-added `Stand` scene check, 22 movement tests) |
+| 2. Built-place self-test (`--full`) | **63 / 63** through Roblox-style instance `require` (quick mode: 59 passed, 4 slow ones skipped) |
+| 3. Client harness | **76 / 76** checks, including the slow-motion indicator (hidden at 1×, shows 0.5× / 0.25× / 0.1×): 5 scenes, every debug control including the blind A/B (hidden labels, switch by key and button, Shift+B reveal with time played per variant and switch count), and gameplay input: keyboard holds and presses, gamepad analog trigger and buttons, touch layout (two thumbs at once, touch-down Let Go), crouch-and-release jump that lands, twist through a half-twist snap with continuous part motion |
 | Static analysis (luau-lsp, strict) | **0 errors** |
 | Formatting (StyLua) | clean |
 | 4. In-Studio self-test and look/feel | **pending** (STUDIO_VALIDATION.md §P1.2) |
 
 (selene still can't download Roblox's API dump offline; luau-lsp covers typing.)
 
-**P1.2 movement tests (`Movement.spec`, 21), mapped to what was asked.** The results are as of feedback round 1; the numbers first reported for P1.2 are in the notes below the table.
+**P1.2 movement tests (`Movement.spec`, 22), mapped to what was asked.** The results are as of feedback round 1; the numbers first reported for P1.2 are in the notes below the table.
 
 | Requirement | Test | Result |
 |---|---|---|
@@ -87,7 +87,8 @@ A4 (pumping), A9–A15 (catch system) and R1–R8 (reference comparison) need th
 | P1.1 tests still pass | all 40 | pass (see below for what moved) |
 | Standing | standing: holds still 10 s, recovers from shoves, stands on muscle alone | COM held over the feet to 1.5e-6 studs; ±3 studs/s shoves recover; `balanceAssist` = 0 still stands 10 s undisturbed |
 | Jumping | jump: releasing Tuck from a crouch… | rise 1.52 / 1.57 studs (0.3 / 0.8 s crouch), takeoff spin ≤ 0.04 rev/s, drift 0.9 studs/s, lands, back to standing height; a 0.08 s tap does not jump |
-| Back-flip takeoff | back-flip takeoff: Arch through the push… | Arch rise 1.78 vs plain 1.73 (must be ≥ 85%); backward takeoff spin 0.38 rev/s (≥ 0.3); rotation with a tuck 0.43 rev. `jumpSpinAssist` 1: 0.87 rev (≥ 0.75), full height, lands on the feet; plain jumps with the assist unchanged |
+| Back-flip takeoff (round 2) | back-flip takeoff: Arch through the push… | Arch rise 1.78 vs plain 1.69 (must be ≥ 85%). Feet only (`jumpSpinAssist` 0): 0.38 rev/s backward (≥ 0.3), 0.43 rev with a tuck. Default: 1.19 rev with a tuck held to landing (≥ 0.75), full height. A pressed 0.2 s after releasing S: 0.90 rev (≥ 0.7); A pressed 0.5 s after (mid-flight): 0.09 rev (< 0.2, no mid-air rotation). Tuck-timing grid: 8/15 back flips land on the feet (≥ 1; pure physics: 0). Plain jumps: takeoff spin < 0.2 rev/s, land standing |
+| Plain-jump landings holding Arch (round 2 regression guard) | plain jumps land standing while holding Arch | pure physics, Arch from takeoff: Earth crouch 0.35 / 0.5 / 0.7 s and moon 0.86 / 1.72 s all stand (round 1 fell 3/3 on Earth). Defaults, Arch from 0.2 or 0.35 s after takeoff (after the late window): all stand, no rotation |
 | Pumping (A4) | pumping: in phase builds, out of phase damps | peak swing angle after 15 s from 60°: no input 50°, **in phase 145°**, out of phase 8° |
 | Pumping (A4): no drain, from nothing to a giant | pumping: held shapes don't drain the swing; from a still hang… | loss per cycle at 90°: relaxed / Tuck / Pike 2.3° / 4.1° / 5.6° (extra over relaxed must be ≤ 4° / ≤ 5°; was 3.7° / 6.8° / 10.7°). `hangStartAngle` 0 stays within 0.8°. From a still hang: 90° at 11.9 s (≤ 15), **over the top at 15.2 s** (≤ 20; P1.2 as first tested stalled at ≈ 107°) |
 | Swing limits | swing limits… | the energy cap (straight body passing the bottom at `maxSwingSpeed`) holds a 6 rad/s cap to **1.08× its energy**, with `swingAssist` 2 and with pumping alone (bound 1.1); grip friction 0.2 → 7° vs 58° after 8 s |
@@ -153,6 +154,12 @@ Both are still within the P1.1 motor settings' range. `motorDampingRatio` 1.5 is
 5. **Moon standing** tolerates ±2 studs/s shoves (±5 in Earth terms); ±3 falls. Scene `Drop` on the moon falls (its fixed initial spin tips the body 47° over the long fall); on Earth it lands and stands.
 6. **Arch jump spin** (`jumpArchSpin` 0.8 rev/s target) only reaches ~0.15 rev/s: the centre of pressure saturates at the toe and the arm swing fights it. Back flips from standing need tuning (or an input design decision) before they are a feature. **Partly resolved:** the Arch takeoff keeps its height and spins at 0.38 rev/s (≈ 0.43 rev with a tuck). A full standing back tuck needs the optional `jumpSpinAssist` (1 → 0.87 rev, lands) or a real lean-back takeoff (Phase 2). The decision is open (PLAYTEST_P1_2.md).
 7. **Feedback round 1 trade-off:** the tuck squeeze and firmer bar hips cost some smoothness (table above). To be judged in the next playtest.
+8. **Round 2: landing a back flip is narrow, and the landing reflex is why.** It works arriving about 30–40° under-rotated with the tuck held. An upright touchdown still spinning (1–1.9 rev/s) with half-folded legs falls back. The reflex places the feet for forward speed only, not for spin or a just-finished shape change.
+   - In the playtested build too, on Earth: a short mid-air tuck then open puts the feet 0.6–1.5 studs ahead of the centre of mass (the body falls back); a tuck held to touchdown rolls back; Arch pressed about 0.25 s into the flight falls.
+   - Proposed next: a spin-aware landing reflex.
+9. **Round 2: air-tuck arms ("T-rex").** Under a typical spin the shoulder and elbow springs settle 20–25° short of the target, so the hands ride up by the chest.
+   - A target of 125° / 80° fixes the look, but the more compact tuck spins faster and standing-backflip landings drop from 21–23 to 6–18 of 81.
+   - Deferred until the landing work, or until the hands actually grip the shins.
 
 ## 2. Layer A — automated core tests (Lune, headless)
 

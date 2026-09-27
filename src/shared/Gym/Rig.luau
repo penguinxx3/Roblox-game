@@ -83,7 +83,9 @@ Rig.LIMITS = {
 Rig.POSES = {
 	Neutral = { shoulder = 8, elbow = 5, hip = 8, knee = 5, ankle = 90 },
 	Tuck = { shoulder = 25, elbow = 20, hip = 125, knee = 135, ankle = 90 },
-	-- Tuck off the bar (P1.2 feedback): the arms come in, hands toward the shins (compact)
+	-- Tuck off the bar (P1.2 feedback): the arms come in, hands toward the shins (compact).
+	-- Under a spin the springs settle ~20-25° short of this, arms up by the chest (P1.2 round 2);
+	-- aiming further in fixes the look but speeds the tuck and over-rotates backflip landings
 	AirTuck = { shoulder = 110, elbow = 60, hip = 125, knee = 135, ankle = 90 },
 	Pike = { shoulder = 15, elbow = 5, hip = 115, knee = 0, ankle = 100 },
 	Arch = { shoulder = -25, elbow = 0, hip = -30, knee = 0, ankle = 100 },

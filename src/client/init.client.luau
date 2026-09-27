@@ -34,6 +34,7 @@ local CameraController = require(script:WaitForChild("CameraController"))
 local DebugOverlay = require(script:WaitForChild("DebugOverlay"))
 local DebugControls = require(script:WaitForChild("DebugControls"))
 local InputRouter = require(script:WaitForChild("InputRouter"))
+local SpeedIndicator = require(script:WaitForChild("SpeedIndicator"))
 
 -- "player" control: Arch/Tuck/Let Go/Twist drive the body through the movement controller
 local sim = Sim.new(nil, "Hang", { control = "player" })
@@ -46,6 +47,7 @@ local worldView = WorldRenderer.new(sim, view)
 local rigView = RigRenderer.new(sim, view)
 local camera = CameraController.new()
 local overlay = DebugOverlay.new(playerGui)
+local speed = SpeedIndicator.new(playerGui)
 local showContacts = false
 local counters = { invalid = 0, outOfBounds = 0 }
 
@@ -115,6 +117,7 @@ RunService:BindToRenderStep("GymSim", Enum.RenderPriority.Input.Value + 1, funct
 	rigView:draw(alpha)
 	local x, y = Sim.bodyPose(sim.rig.torso, alpha)
 	camera:update(Vector3.new(x, y, 0), dt)
+	speed:update(sim.tuning.timeScale)
 	debug.profileend()
 	local t2 = os.clock()
 

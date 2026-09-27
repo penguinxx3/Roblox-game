@@ -198,6 +198,7 @@ src/client/                     PRESENTATION ONLY (reads simulation state, never
   WorldRenderer.luau            Course, bar, wheel drawn from the solver's own shapes; contact markers
   CameraController.luau         Calm side view, smooth follow
   DebugOverlay.luau             Timing, energy, momentum, joint error, contacts, angles, movement state, input, events
+  SpeedIndicator.luau           Slow-motion speed label at the top of the screen (display only)
   DebugControls.luau            Debug keys/buttons (scene 1-5, pose override, slow-mo, moon, pause, step, contacts,
                                 blind A/B with hidden labels);
                                 live tuning attributes (ReplicatedStorage.GymTuning)

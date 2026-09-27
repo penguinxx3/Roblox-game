@@ -1,8 +1,8 @@
 -- Flip and swing benchmark (P1.2 playtest feedback round): the numbers behind PLAYTEST_P1_2.md.
 -- Usage: lune run tools/flip_bench.luau ['{"param": value, ...}']
 --
---   A. Standing jumps: plain; Arch held through the release then Tuck in the air; the same
---      with jumpSpinAssist 1. Earth, and moon (strength follows gravity).
+--   A. Standing jumps: plain; Arch held through the release then Tuck in the air (default
+--      takeoff spin, and pure physics with jumpSpinAssist 0). Earth, and moon.
 --   B. Bar release flips: pump N seconds, let go on a front upswing at an angle, tuck.
 --   C. Held shapes on the bar: swing lost per cycle from 90° (relaxed / Tuck / Arch / Pike).
 --   D. Pumping from a still hang: time to 30/60/90° and over the top.
@@ -194,11 +194,14 @@ local function fromStill(): string
 end
 
 print("A. standing jumps (crouch 0.6 s; moon 1.4 s)")
-print("   plain                  " .. standingJump(base, 0.6, false))
-print("   Arch takeoff + tuck    " .. standingJump(base, 0.6, true))
-print("   same, jumpSpinAssist 1 " .. standingJump(with({ jumpSpinAssist = 1 }), 0.6, true))
-print("   moon, Arch + tuck      " .. standingJump(with({ moonGravity = 1 }), 1.4, true))
-print("   moon, assist 1         " .. standingJump(with({ moonGravity = 1, jumpSpinAssist = 1 }), 1.4, true))
+print("   plain                          " .. standingJump(base, 0.6, false))
+print("   Arch takeoff + tuck            " .. standingJump(base, 0.6, true))
+print("   same, pure physics (assist 0)  " .. standingJump(with({ jumpSpinAssist = 0 }), 0.6, true))
+print("   moon, Arch takeoff + tuck      " .. standingJump(with({ moonGravity = 1 }), 1.4, true))
+print(
+	"   moon, pure physics (assist 0)  "
+		.. standingJump(with({ moonGravity = 1, jumpSpinAssist = 0 }), 1.4, true)
+)
 print("B. bar release flips (Hang, let go on a front upswing, then tuck)")
 for _, secs in { 0, 4 } do
 	local parts = {}

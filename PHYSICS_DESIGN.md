@@ -83,7 +83,7 @@ The solver works in relative body angles; each joint maps anatomical ↔ relativ
 | Neutral (air/bar: arms overhead, slight hollow) | +8° | +5° | +8° | +5° | 90° |
 | Arch | −25° | 0° | −30° | 0° | 100° |
 | Tuck (on the bar: arms overhead) | +25° | +20° | +125° | +135° | 90° |
-| AirTuck (Tuck off the bar: arms in, hands toward the shins) | +110° | +60° | +125° | +135° | 90° |
+| AirTuck (Tuck off the bar: arms in, hands toward the shins; under a spin the arms settle 20–25° short, up by the chest, see PLAYTEST_P1_2.md round 2) | +110° | +60° | +125° | +135° | 90° |
 | Pike | +15° | +5° | +115° | 0° | 100° |
 | GroundStand | +150° | +15° | +8° | +10° | 95° |
 | GroundCrouch (Tuck or Pike on the ground; balanced: centre of mass over the feet) | +70° | +15° | +107° | +100° | 118° |
@@ -211,18 +211,25 @@ Pulled forward from Phase 2 at the owner's request. All of it is muscle torques 
 
 **Crouch and jump** (GAME_PLAN §4: crouching is Tuck; releasing Tuck from a crouch jumps):
 - Crouch depth is measured from the actual knee angle. Releasing Tuck at depth ≥ `jumpMinCrouch` (0.25) starts the **push**.
-- The push chooses the **ground reaction force**: the body's weight plus `jumpStrength` (1.5) body weights upward, applied right under the centre of mass. Each leg joint produces the torque that force needs about it, `τ_j = −((c − p_j) × F)`, capped at `jumpLegStrength` × strength. Where the force acts under the foot (the centre of pressure `c`) sets the moment about the centre of mass, the only thing that changes the body's spin: it steers the spin to zero at `jumpSpinHertz`, or toward `jumpArchSpin` (0.8 rev/s) backward while Arch is held (a back-flip takeoff), within what the foot can physically do.
+- The push chooses the **ground reaction force**: the body's weight plus `jumpStrength` (1.5) body weights upward, applied right under the centre of mass. Each leg joint produces the torque that force needs about it, `τ_j = −((c − p_j) × F)`, capped at `jumpLegStrength` × strength. Where the force acts under the foot (the centre of pressure `c`) sets the moment about the centre of mass, the only thing that changes the body's spin: it steers the spin to zero at `jumpSpinHertz`, or toward `jumpArchSpin` (1.0 rev/s) backward while Arch is held (a back-flip takeoff), within what the foot can physically do.
 - The hips bring the trunk from the crouch's lean to upright (`jumpTorsoHertz`), internally.
 - The push stops when the knees pass `jumpLockKnee` (10°) or the feet leave the ground: an uncontrolled toe-off added spin and drift.
-- **Centre of pressure range (P1.2 feedback round):** the centre of pressure stays within the middle 60% of the foot (`PUSH_COP_RANGE`). Before, a back-flip takeoff pinned it at the toe edge. The ankles then tipped the body onto its toes and the knees stopped extending (100° → 77°), so the Arch jump lost a third of its height (1.35 vs 1.69 studs).
+- **Centre of pressure range (P1.2 feedback round):** during an Arch push the centre of pressure stays within the middle 60% of the foot (`PUSH_COP_RANGE`, blended in by how much Arch is held). Before, a back-flip takeoff pinned it at the toe edge. The ankles then tipped the body onto its toes and the knees stopped extending (100° → 77°), so the Arch jump lost a third of its height (1.35 vs 1.69 studs).
+  - A plain push keeps the whole foot. Round 1 had applied the narrower range to every jump; plain takeoffs then changed subtly, and landings with Arch held fell 3 of 3 times (round 2 fix: plain jumps are exactly as first playtested again).
 - **Back-flip takeoff:** while Arch is held, the push also drops the horizontal drift damping. It pushed the feet forward under a body rotating back, and its moment cancelled the spin (0.08 rev/s with it, 0.38 without).
 - Measured: plain jumps rise 1.4–1.8 studs (≈ 0.45 m at this scale) with ~0.5–0.65 s of air. They take off with ≤ 0.1 rev/s spin and ≤ 1.3 studs/s drift, and land back on the feet.
 - An Arch takeoff rises 1.78 studs (plain 1.73) with 0.38 rev/s backward spin. Tucking right away turns ≈ 0.43 rev before landing: **the feet alone can't make a standing back flip** at this height.
   - A real standing back tuck leaves the ground at ≈ 0.7–0.8 rev/s with a similar airtime. It gets there with a backward lean that puts the centre of mass behind the toes, which this push controller doesn't do.
-  - More height doesn't solve it: `jumpStrength` 1.5 → 3.5 raises the rise only 1.73 → 2.38 studs (airtime 0.63 → 0.75 s), because the push ends at knee lock. Plain jumps then land fallen.
-- **`jumpSpinAssist`** (optional, default 0 = pure physics): at takeoff after an Arch push, this share of the spin still missing to `jumpArchSpin` is added as a torque about the centre of mass over the first 0.1 s of flight.
+  - More height doesn't solve it: `jumpStrength` 1.5 → 3.5 raises the rise only 1.73 → 2.38 studs (airtime 0.63 → 0.75 s), because the push ends at knee lock (and the leg torque cap binds). Jumps that tuck until touchdown then land fallen (round 2 correction: plain jumps land fine).
+- **Takeoff spin (`jumpSpinAssist`, default 1 since P1.2 round 2; 0 = pure physics):** after a jump with Arch, this share of the spin still missing to `jumpArchSpin` is added as a torque about the centre of mass over the first 0.1 s of flight. It isn't muscle.
   - It acts after takeoff because adding it during the push tipped the body back while the legs were still extending (rise 1.78 → 0.56 studs).
-  - At 1: 0.87 rev before landing, landing on the feet, full height. Plain jumps are unaffected.
+  - **Why it's on:** in the air Arch can't create rotation, because angular momentum is conserved (holding Arch from rest turns the torso back 7° while the legs swing 31° the other way). So a standing back flip has to get its spin at takeoff, and the feet alone give 0.38 rev/s.
+  - **Why 1.0 rev/s:** across 81 timings (A early / on time / late, tuck 0.05–0.15 s after takeoff for 0.3–0.7 s), landed back flips were 0 at 0.8 rev/s, 10 at 0.9, 21–23 at 1.0, and 2 at 1.1 (over-rotation). A real back tuck leaves at 0.7–0.8 rev/s with ~0.65 s of air; this body's flight is ~0.55 s.
+- **Late Arch window:** A pressed up to 0.12 s after takeoff (about 0.3 s after releasing S) still makes the jump a back flip (`ARCH_LATE_WINDOW`, scaled like the other ground timers on the moon). Before round 2, A had to be held at the moment S was released: 0.06 s late gave 0.30 rev/s, 0.2 s late nothing. Later than the window, Arch is only a shape change.
+- Result: an Arch takeoff leaves at ≈ 1.05 rev/s backward (A on time or 0.2 s late), full height (1.78 studs). With a tuck it turns 0.87–1.2 rev, depending on when you open. Plain jumps are unaffected.
+- **Landing a back flip is the next limit.** It works when arriving about 30–40° under-rotated with the tuck held. An upright touchdown still spins at 1–1.9 rev/s with the legs half-folded and falls back.
+  - The landing reflex places the feet for forward speed, not for spin or a just-finished shape change. After a short mid-air tuck on Earth it puts the feet 0.6–1.5 studs ahead of the centre of mass, and the body falls back; that happens in the playtested build too.
+  - A spin-aware landing reflex is the proposed next step (PLAYTEST_P1_2.md, round 2).
 
 **Landing:**
 - **Landing reflex** (air, no shape input, trunk within `landingReflexTilt`, falling): the hips swing the legs so the middle of the feet lands under the centre of mass plus half the pendulum capture-point lead (two-link leg geometry with soft knees), and the ankles level the feet. Internal motion only. It fades out mid-flip.
@@ -346,7 +353,7 @@ Torques about the grip are applied as a whole-body rotation (the same angular ac
 ## 9. Time step, time scale, gravity, interpolation
 
 - `dt = 1/simHz` (240). Each frame: `acc += min(realDt, 0.1)·timeScale`. Run `floor(acc/dt)` steps, capped at `maxStepsPerFrame` (excess is dropped). Render alpha = `acc/dt`.
-- **Slow motion = a smaller `timeScale`.** It applies to **the player's whole simulated world**, including kinematic equipment, whose motion is a deterministic function of the player's sim time. That matches the reference (the wheels slow down too).
+- **Slow motion = a smaller `timeScale`.** It applies to **the player's whole simulated world**, including kinematic equipment, whose motion is a deterministic function of the player's sim time. That matches the reference (the wheels slow down too). While slowed, the client shows the speed at the top of the screen (`SLOW-MO 0.25×`; `SpeedIndicator.luau`, display only).
 - **Moon gravity** = `gravity × moonGravityScale` (0.165, so 35 → 5.775 studs/s²). It combines with slow-mo. Analysis (P1.2), all measured headlessly:
   - **Physically consistent.** A fixed launch (the Tumble scene) reaches `1/0.165` = 6.06× the Earth height (measured 6.07×) and stays up 6.06× as long.
   - **Muscle-driven motion depends on `strengthGravityScaling`.** At the default 1 (P1.1 behaviour) strength follows gravity: every gravity-driven motion keeps its shape and is √6.06 ≈ 2.46× slower. A standing jump rises the same (1.95 vs 1.69 studs) with 2.7× the airtime (1.40 vs 0.52 s); the reference's moon jump shows ~1.5 s of airtime. At 0, Earth strength on the moon: real-moon physics, a 7.0-stud jump with 2.9 s of airtime.
@@ -468,8 +475,8 @@ Mass fractions, radii, the heel (`FOOT_HEEL`), shank trim and the inertia profil
 | `jumpStrength` | 1.5 | 0–6 | body weights | Push; rise ≈ this × crouch depth in studs |
 | `jumpLegStrength` | 3 | 0.5–8 | × | Leg torque cap during the push |
 | `jumpMinCrouch` / `jumpPushTime` / `jumpLockKnee` | 0.25 / 0.3 / 10 | 0–1 / 0.05–1 s / 0–60° | | |
-| `jumpSpinHertz` / `jumpArchSpin` | 4 / 0.8 | 0–20 Hz / 0–3 rev/s | | Spin control; backward spin with Arch |
-| `jumpSpinAssist` | 0 | 0–1 | × | Optional takeoff spin assist after an Arch push (1 = reach `jumpArchSpin`) |
+| `jumpSpinHertz` / `jumpArchSpin` | 4 / 1.0 | 0–20 Hz / 0–3 rev/s | | Spin control; back-flip takeoff spin with Arch |
+| `jumpSpinAssist` | 1 | 0–1 | × | Takeoff spin after an Arch takeoff (1 = reach `jumpArchSpin`; 0 = pure physics) |
 | `jumpTorsoHertz` / `jumpHertz` | 3 / 12 | 0–12 / 2–60 | Hz | Trunk steering / arm swing during the push |
 | `landingReflex` / `landingReflexTilt` | 1 / 45 | 0–1 / 5–90° | | Legs under the body before landing |
 | `landingHertz` / `landingDampingRatio` / `landingAbsorbTime` | 3 / 2.5 / 0.5 | | Hz / ζ / s | Landing damper |

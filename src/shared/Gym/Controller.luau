@@ -68,6 +68,9 @@ export type State = {
 	pushTimer: number, -- > 0 while a jump push is running
 	pushLean: number, -- trunk's forward lean when the push started (radians, per unit crouch depth)
 	pushArch: number, -- most Arch held during the current push (a back-flip takeoff)
+	jumped: boolean, -- a jump push happened since the last landing
+	archWindow: number, -- time left after a jump takeoff in which Arch still starts a back flip
+	spinAssisted: boolean, -- the takeoff spin assist already ran for this jump
 	spinAssistTimer: number, -- > 0 while the optional takeoff spin assist acts
 	spinAssistTorque: number,
 	absorbing: boolean, -- landing: the legs yield (pure damping) until the fall is stopped
@@ -126,6 +129,9 @@ function Controller.new(sim: any): State
 		pushTimer = 0,
 		pushLean = 0,
 		pushArch = 0,
+		jumped = false,
+		archWindow = 0,
+		spinAssisted = false,
 		spinAssistTimer = 0,
 		spinAssistTorque = 0,
 		absorbing = false,
@@ -185,6 +191,9 @@ local MIRROR_CLEARANCE = 0.05 -- a half-twist snap needs this much room around t
 -- extending, so a back-flip takeoff lost a third of its height (P1.2 feedback)
 local PUSH_COP_RANGE = 0.6
 local SPIN_ASSIST_TIME = 0.1 -- the optional takeoff spin assist acts over this long after takeoff (s)
+-- Arch pressed this soon after a jump's takeoff still makes it a back flip (s). Players press A
+-- a moment after letting go of Tuck; the push itself is over in ~0.2 s (P1.2 round 2)
+local ARCH_LATE_WINDOW = 0.12
 local function scanContacts(sim: any, st: State)
 	local rig: Rig.Rig = sim.rig
 	local ankle = rig.jointByName.ankle.joint
@@ -520,7 +529,9 @@ local function pushMuscles(sim: any, st: State, t: Tuning.Values, archW: number)
 	-- feet forward under a body that rotates back, and its moment cancels the spin
 	fx *= 1 - archW
 	local cx = ms.cx + (moment + (cy - ms.cy) * fx) / fy
-	local margin = (st.footMaxX - st.footMinX) * 0.5 * (1 - PUSH_COP_RANGE)
+	-- (only for the Arch push: a plain push keeps the whole foot, as playtested; narrowing it
+	-- for plain jumps changed their takeoff and made landings holding Arch fall, P1.2 round 2)
+	local margin = (st.footMaxX - st.footMinX) * 0.5 * (1 - PUSH_COP_RANGE) * archW
 	cx = math.clamp(cx, st.footMinX + margin, st.footMaxX - margin)
 	st.debugCop = cx
 	st.debugMoment = moment
@@ -535,11 +546,16 @@ local function pushMuscles(sim: any, st: State, t: Tuning.Values, archW: number)
 	end
 end
 
--- Optional takeoff spin assist (not muscle, off by default). The feet alone give a back-flip
--- takeoff about half the spin a standing back flip needs; pushing harder in the push itself
--- tips the body back while the legs extend and costs height. So the missing share is added
--- just after takeoff instead, as a torque about the centre of mass over SPIN_ASSIST_TIME.
+-- Takeoff spin assist (not muscle; `jumpSpinAssist`). The feet alone give a back-flip takeoff
+-- about half the spin a standing back flip needs: the ground can only push within the foot,
+-- for the ~0.2 s the push lasts. Pushing harder in the push itself tips the body back while
+-- the legs extend and costs height. So the missing share is added just after takeoff instead,
+-- as a torque about the centre of mass over SPIN_ASSIST_TIME. In the air, Arch can't create
+-- rotation (angular momentum is conserved), so a back flip must be started here.
 function startSpinAssist(sim: any, st: State, t: Tuning.Values, ms: Rig.MassState)
+	if st.spinAssisted then
+		return
+	end
 	st.spinAssistTimer = 0
 	if t.jumpSpinAssist <= 0 or st.pushArch <= 0 then
 		return
@@ -552,6 +568,7 @@ function startSpinAssist(sim: any, st: State, t: Tuning.Values, ms: Rig.MassStat
 	local duration = SPIN_ASSIST_TIME / groundTimeScale(t)
 	st.spinAssistTimer = duration
 	st.spinAssistTorque = missing / duration
+	st.spinAssisted = true
 end
 
 -- Optional balance assist (a separate knob, off in flight). A single planar pair of feet
@@ -600,6 +617,8 @@ local function driveGround(sim: any, st: State, input: Input.Frame, t: Tuning.Va
 		st.pushTimer = t.jumpPushTime / groundTimeScale(t)
 		st.pushLean = -facing * torsoTilt(rig) / max(st.crouchDepth, 0.1)
 		st.pushArch = 0
+		st.jumped = true
+		st.spinAssisted = false
 		event(sim, st, "push", string.format("%.2f", st.crouchDepth))
 	end
 	st.wasTucking = tucking
@@ -627,7 +646,6 @@ local function driveGround(sim: any, st: State, input: Input.Frame, t: Tuning.Va
 		end
 		smoothShape(st, goal, t, h, t.jumpHertz)
 		local _, archW, _ = Input.shapeWeights(input)
-		st.pushArch = max(st.pushArch, archW)
 		-- once the knees are straight the body is already rising: no toe-off kick (it
 		-- would add uncontrolled spin and drift); the feet simply leave the ground
 		if math.deg(Rig.jointAngle(rig.jointByName.knee, facing)) > t.jumpLockKnee then
@@ -795,6 +813,8 @@ function Controller.step(sim: any, st: State, input: Input.Frame, h: number)
 				setMode(sim, st, "ground")
 				st.pushTimer = 0
 				st.pushArch = 0
+				st.jumped = false
+				st.archWindow = 0
 				st.wasTucking = false
 				local gs = groundTimeScale(t)
 				st.absorbing = impact > LANDED_SPEED * gs and t.landingAbsorbTime > 0
@@ -816,6 +836,9 @@ function Controller.step(sim: any, st: State, input: Input.Frame, h: number)
 				setMode(sim, st, "air")
 				st.halfTwists = 0
 				event(sim, st, "takeoff")
+				if st.jumped then
+					st.archWindow = ARCH_LATE_WINDOW / groundTimeScale(t)
+				end
 				startSpinAssist(sim, st, t, ms)
 			end
 		elseif st.bodyContact or (st.footContacts > 0 and not upright) then
@@ -830,6 +853,19 @@ function Controller.step(sim: any, st: State, input: Input.Frame, h: number)
 		end
 	end
 	st.prevComVY = ms.vy
+
+	-- a jump is a back flip if Arch is held at any point from the push until just after takeoff
+	if st.jumped then
+		if st.mode == "ground" then
+			st.pushArch = max(st.pushArch, input.arch)
+		elseif st.mode == "air" and st.archWindow > 0 then
+			st.archWindow -= h
+			if input.arch > 0 and not st.spinAssisted then
+				st.pushArch = max(st.pushArch, input.arch)
+				startSpinAssist(sim, st, t, Rig.massState(rig))
+			end
+		end
+	end
 
 	updateTwist(sim, st, input, t, h, newL, newR)
 

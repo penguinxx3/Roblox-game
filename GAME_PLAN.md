@@ -45,7 +45,7 @@ A **regrab** is a successful intentional catch after a release, without touching
 
 Grab and Let Go are never both valid at the same moment, so pressing the wrong one of the two does nothing.
 
-*Ground (built early, in P1.2):* no extra buttons. **Tuck = crouch; releasing Tuck from a crouch pushes off and jumps physically** (a quick tap only dips). **Arch = reach** (arms up, rise); holding Arch through the push spins the body backward at full jump height (a back-flip takeoff). The feet alone give about half a back tuck; the optional `jumpSpinAssist` makes a full one (design decision open, PLAYTEST_P1_2.md). Pike on the ground crouches like Tuck. Landing on the feet is contact physics plus a landing reflex; landing on hands is Phase 2.
+*Ground (built early, in P1.2):* no extra buttons. **Tuck = crouch; releasing Tuck from a crouch pushes off and jumps physically** (a quick tap only dips). **Arch = reach** (arms up, rise); holding Arch through the push, or pressing it just after takeoff, makes a back flip: the takeoff spins the body backward at full jump height (the feet plus a takeoff spin assist, P1.2 round 2). In the air Arch opens the body; it can't start a rotation (angular momentum is conserved). Pike on the ground crouches like Tuck. Landing on the feet is contact physics plus a landing reflex; landing on hands is Phase 2.
 
 *As built in P1.2:* the keyboard and gamepad tables below are implemented (Grab is counted but has no effect until P1.3; Reset is on R / Y; the alternate debug keys \` and gamepad View/Select are not bound yet). Touch uses a **minimal functional Layout A** (touch-down, multi-touch, also clickable with a mouse), not the final mobile UI; Layout B, button sizing/opacity settings and the clean-recording mode come later.
 

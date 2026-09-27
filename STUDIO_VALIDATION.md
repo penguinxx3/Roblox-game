@@ -18,7 +18,7 @@ Press **Play** (F5). In the **Output** window you should see:
 
 | Expect | Meaning |
 |---|---|
-| `[GymSelfTest] ... 58 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
+| `[GymSelfTest] ... 59 passed, 0 failed, 4 skipped` | The physics and movement specs pass **inside the Roblox engine** (quick mode) |
 | `[GymClient] P1.2 movement running. Play: A/← Arch, ...` | The client started in player control |
 | `[GymClient] runtime check OK: scene=Hang steps=... avgSim=...ms ...` | The simulation is stepping and rendering after 3 s |
 | No red errors, no `warn` lines from `[GymClient]` | |
@@ -28,7 +28,7 @@ Also check `ReplicatedStorage.GymTests` in Explorer (server view): `SelfTestStat
 **Full suite** (includes the slow soaks, ~30–60 s). From the **command bar**, in Edit mode or on the server during Play:
 
 ```lua
-print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (62 passed)
+print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- expect 0 (63 passed)
 ```
 
 ## 2. Controls
@@ -47,7 +47,9 @@ print(require(game.ReplicatedStorage.GymTests.StudioRun)(false).failed)   -- exp
 
 **Debug:** 1–5 scene · V pose override (holds a named pose instead of your input: Neutral → Tuck → Pike → Arch → Crouch → Limp → back to your input) · T slow-mo 1 / 0.5 / 0.25 / 0.1 · G moon gravity · P pause · N single step · C contact markers · **B blind A/B switch, Shift+B reveal (§4a)** · F2 overlay. The same actions are buttons at the top right (the A/B button switches only).
 
-**Back-flip takeoff (standing):** hold S to crouch, press and hold A, release S (the push starts with Arch held), then press S in the air to tuck.
+**Back flip (standing):** hold S to crouch, then press A, either while still holding S or up to about 0.3 s after letting go. Let go of S to jump, press S in the air to tuck, and let go a moment before landing. The backward spin comes from the takeoff: pressing A later in the air only opens the body, since nothing in the air can start a rotation.
+
+**Back flip (bar):** Arch on the way down, Tuck through the bottom, let go on the way up, keep tucking, open before landing.
 
 The overlay's `move` line shows the mode (grip / air / ground / fallen), facing, twist angle and half twists, spin rate, crouch depth, swing rate and the last event; the `input` line shows what the simulation receives.
 
@@ -71,10 +73,11 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
 | | Hold **S** ~0.5 s, release | Crouches (controlled, feet stay down), then **jumps ~1.5 studs**, lands on the feet and stands up again | Feet leaving the floor while crouching; big forward drift; falling after landing |
 | | Hold **A** | Rises into a reach (arms up) and keeps balance | |
 | | Jump, then **E** in the air | Twists in the air, lands square | |
-| | Back-flip takeoff (§2), then **S** in the air | As high as a plain jump, with a visible backward spin; about half a turn (a full back flip isn't reachable by the feet alone) | Lower than a plain jump; forward drift |
-| | Same with `jumpSpinAssist` = 1 (§4) | About a full back tuck, landing on the feet (with some practice) | |
+| | Back flip (§2) | As high as a plain jump, clearly spinning backward; with the tuck about a full turn, landable with practice (open a moment before touchdown; landing slightly short of upright works best) | Lower than a plain jump; no rotation when A is pressed on time |
+| | Jump, then press **A** well after takeoff | Only opens the body; no rotation | Any rotation from a late A |
+| | Same back flip with `jumpSpinAssist` = 0 (§4) | Pure physics: only about half a turn | |
 
-**Slow motion (T)** — repeat a jump and a release at 0.25 and 0.1: motion stays smooth, and **every press still works**, even a quick tap (presses are counted, never dropped).
+**Slow motion (T)** — repeat a jump and a release at 0.25 and 0.1: motion stays smooth, and **every press still works**, even a quick tap (presses are counted, never dropped). The speed shows at the top of the screen (`SLOW-MO 0.5×` / `0.25×` / `0.1×`) and disappears at normal speed.
 
 **Moon (G)** — jumps and swings are the same height as on Earth but ~2.5× slower and floatier (strength follows gravity by default). For real-moon jumps (~6× higher) set `strengthGravityScaling = 0` in `GymTuning` (§4) and compare. With `jumpSpinAssist` = 1, a standing back tuck on the moon turns about twice.
 
@@ -88,7 +91,7 @@ The overlay's `move` line shows the mode (grip / air / ground / fallen), facing,
 2. Select `ReplicatedStorage.GymTuning`.
 3. Edit attributes in Properties. Changes apply immediately, except the ones marked "applies on Reset" in the overlay. Worth trying for P1.2 feel:
    - `motorHertz` 6 vs 8: use the blind A/B (§4a) rather than editing it
-   - `jumpSpinAssist` 0 → 1 (standing back flips; off = pure physics)
+   - `jumpArchSpin` 1.0 (back-flip takeoff spin; 0.9 = gentler, 1.1 over-rotates) and `jumpSpinAssist` 1 (0 = pure physics: no standing back flips)
    - `hangStartAngle` 60 → 0, then R (start from a still hang)
    - `tuckHertz` 10 (air tuck squeeze; 6 = as first playtested, 8 = softer), `gripHipHertz` 10 (bar hips; 6 = as first playtested)
    - `motorDampingRatio` 1.25 → 0.8 (P1.1's livelier, wobblier feel) or 1.5 (calmer)
@@ -127,15 +130,16 @@ Best with 2–3 people, each with a fresh Play session (a new random mapping). W
 
 Scores out of 10 per item, as in round 1, help compare.
 
-1. **Flips from the bar:** pump 3–5 swings, let go on the front upswing, Tuck. Does a full flip, and then more than one, feel reachable and controllable?
-2. **Tuck:** is it visibly compact and quick now? Do the arms look right, or floppy? (If floppy: `tuckHertz` 8 or `motorDampingRatio` 1.5.)
-3. **Pumping:** still good? Does active swinging still ever feel like it slows you down (when exactly)? From a still hang (`hangStartAngle` 0), is building a swing fun or a chore?
-4. **Standing back tuck:** with `jumpSpinAssist` 0 and 1. Keep the assist, change it, or leave standing flips out?
-5. **Arch:** now that it has clear jobs (pump on the downswing, open to slow a spin, back-flip takeoff), does it make sense?
-6. **Motor A/B:** result of §4a.
-7. **Smoothness:** anything that looks wobbly or snappy since this round (the tuck squeeze and firmer bar hips trade a little smoothness for responsiveness)?
-8. **Moon and slow motion:** still as enjoyable as in the first playtest? They should behave exactly as before; tests guard it, but say if anything feels different.
-9. **Twist, joints, contacts:** anything that looks wrong.
+Round 3 (after the Arch changes; PLAYTEST_P1_2.md, round 2):
+
+1. **Standing back flip (§2):** can you start one reliably now? With practice, can you land it? Does the backward spin feel natural, too weak or too strong?
+2. **Arch:** the flip's rotation now comes from the takeoff (and, on the bar, from Arch down and Tuck up before letting go). In the air Arch opens the body. Does that make sense in play? Score it again.
+3. **Bar flip (§2):** can you complete one now?
+4. **Landings:** which landings fail most (after a flip, a tuck, holding Arch)? This decides the next round (a spin-aware landing reflex).
+5. **Jump height:** still wanting a boost after the back-flip change?
+6. **Slow-mo indicator:** clear, and not in the way?
+7. **Motor A/B:** redo §4a properly blind, and send the reveal line (round 2's "preferred B" couldn't be counted).
+8. **Pumping, twist, moon, slow motion, tuck:** still as good as round 2? Tests guard them, but say if anything feels different.
 
 ## 7. For a Claude session with Studio MCP on your computer
 

@@ -87,13 +87,14 @@ return function(T: any)
 
 	-- Crouch for `hold` seconds and release (a jump). Returns a summary. `opts.arch`: hold Arch
 	-- through the release (a back-flip takeoff); `opts.tuckInAir`: tuck from takeoff to landing.
-	local function jump(
-		overrides: { [string]: number }?,
-		hold: number,
-		extra: number?,
-		opts: { arch: boolean?, tuckInAir: boolean? }?
-	): any
-		local o: { arch: boolean?, tuckInAir: boolean? } = opts or {}
+	-- `opts.script(t, release, takeoff, landed)` returns (tuck, arch) after the release instead.
+	type JumpOpts = {
+		arch: boolean?,
+		tuckInAir: boolean?,
+		script: ((number, number, number?, boolean) -> (number, number))?,
+	}
+	local function jump(overrides: { [string]: number }?, hold: number, extra: number?, opts: JumpOpts?): any
+		local o: JumpOpts = opts or {}
 		local sim = player("Stand", overrides)
 		local inp = Input.new()
 		local r = {
@@ -122,6 +123,11 @@ return function(T: any)
 			i.arch = if o.arch and s.time >= release - 0.05 and takeoff == nil then 1 else 0
 			if o.tuckInAir and takeoff and not land then
 				i.tuck, i.arch = 1, 0
+			end
+			if o.script and s.time >= release - 0.1 then
+				local tuck, arch = o.script(s.time, release, takeoff, land ~= nil)
+				i.tuck = if s.time < release then 1 else tuck
+				i.arch = arch
 			end
 			local a = s.rig.torso.a
 			if takeoff and not land then
@@ -663,29 +669,129 @@ return function(T: any)
 
 	T.test("back-flip takeoff: Arch through the push spins backward without losing height", function()
 		local plain = jump(nil, 0.6)
-		local arch = jump(nil, 0.6, 3, { arch = true, tuckInAir = true })
-		local back = arch.sim.rig.facing -- backward spin is counter-clockwise when facing +x
-		T.note("plain rise / arch rise", string.format("%.2f / %.2f", plain.rise, arch.rise))
-		T.note("arch takeoff spin (rev/s, + = backward)", back * arch.takeoffSpin)
-		T.note("arch + tuck rotation before landing (rev)", back * arch.rotation)
+		local back = plain.sim.rig.facing -- backward spin is counter-clockwise when facing +x
+		-- the feet alone (pure physics, jumpSpinAssist 0): full height, about half the spin a
+		-- standing back flip needs. In the air, Arch can't create rotation.
+		local feet = jump({ jumpSpinAssist = 0 }, 0.6, 3, { arch = true, tuckInAir = true })
+		T.note("plain rise / arch rise", string.format("%.2f / %.2f", plain.rise, feet.rise))
+		T.note("feet-only takeoff spin (rev/s, + = backward)", back * feet.takeoffSpin)
+		T.note("feet-only rotation with a tuck (rev)", back * feet.rotation)
 		-- pinned at the toe edge, the ankles tipped the body onto its toes and the knees stopped
 		-- extending: the Arch jump lost a third of its height (P1.2 feedback)
-		T.above(arch.rise, 0.85 * plain.rise, "an Arch takeoff keeps the jump height")
-		T.above(back * arch.takeoffSpin, 0.3, "backward takeoff spin from the feet")
-		-- the optional spin assist: a standing back tuck gets about a full turn; plain jumps unchanged
-		local assisted = jump({ jumpSpinAssist = 1 }, 0.6, 3, { arch = true, tuckInAir = true })
+		T.above(feet.rise, 0.85 * plain.rise, "an Arch takeoff keeps the jump height")
+		T.above(back * feet.takeoffSpin, 0.3, "backward takeoff spin from the feet")
+		-- default: the takeoff spin assist tops the takeoff up to jumpArchSpin (P1.2 round 2)
+		local flip = jump(nil, 0.6, 3, { arch = true, tuckInAir = true })
 		T.note(
-			"assisted rotation (rev) / rise / end",
-			string.format("%.2f / %.2f / %s", back * assisted.rotation, assisted.rise, assisted.finalMode)
+			"default: rotation (rev) / rise / end",
+			string.format("%.2f / %.2f / %s", back * flip.rotation, flip.rise, flip.finalMode)
 		)
-		T.above(back * assisted.rotation, 0.75, "assisted standing back tuck rotation")
-		T.above(assisted.rise, 0.85 * plain.rise, "the assist keeps the jump height")
-		local plainAssisted = jump({ jumpSpinAssist = 1 }, 0.6)
-		T.below(math.abs(plainAssisted.takeoffSpin), 0.2, "the assist leaves plain jumps alone")
-		T.expect(
-			plainAssisted.finalMode == "ground",
-			`plain jump with the assist ended {plainAssisted.finalMode}`
+		T.above(back * flip.rotation, 0.75, "Arch takeoff + tuck: a standing back flip's rotation")
+		T.above(flip.rise, 0.85 * plain.rise, "the takeoff spin keeps the jump height")
+		-- players press A a moment after letting go of S: up to just after takeoff still counts
+		local function lateArch(at: number): any
+			return jump(nil, 0.6, 3, {
+				script = function(
+					t: number,
+					release: number,
+					takeoff: number?,
+					landed: boolean
+				): (number, number)
+					if landed then
+						return 0, 0
+					end
+					if takeoff and t >= takeoff + 0.15 then
+						return 1, 0 -- tuck
+					end
+					return 0, if t >= release + at then 1 else 0
+				end,
+			})
+		end
+		local late = lateArch(0.2)
+		local midAir = lateArch(0.5)
+		T.note(
+			"A pressed 0.2 s / 0.5 s after releasing S: rotation (rev)",
+			string.format("%.2f / %.2f", back * late.rotation, back * midAir.rotation)
 		)
+		T.above(back * late.rotation, 0.7, "a slightly late Arch still makes a back flip")
+		T.below(math.abs(midAir.rotation), 0.2, "Arch pressed mid-flight creates no rotation")
+		-- landable: some timings of the tuck land the flip on the feet (pure physics: none)
+		local landed, tries = 0, 0
+		for _, delay in { 0.05, 0.1, 0.15 } do
+			for _, tuckFor in { 0.3, 0.4, 0.5, 0.6, 0.7 } do
+				local r = jump(nil, 0.6, 3, {
+					script = function(
+						t: number,
+						release: number,
+						takeoff: number?,
+						landed: boolean
+					): (number, number)
+						if landed or t < release - 0.05 then
+							return 0, 0
+						end
+						if takeoff and t >= takeoff + delay then
+							return if t < takeoff + delay + tuckFor then 1 else 0, 0
+						end
+						return 0, 1
+					end,
+				})
+				tries += 1
+				if r.finalMode == "ground" and back * r.rotation >= 0.75 then
+					landed += 1
+				end
+			end
+		end
+		T.note("back flips landed on the feet (tuck delay x tuck time grid)", `{landed}/{tries}`)
+		T.above(landed, 1, "some back-flip timings land on the feet")
+		-- plain jumps are untouched by the takeoff spin
+		T.below(math.abs(plain.takeoffSpin), 0.2, "plain jump takeoff spin")
+		T.expect(plain.finalMode == "ground", `plain jump ended {plain.finalMode}`)
+	end)
+
+	T.test("plain jumps land standing while holding Arch (Earth and moon)", function()
+		-- round 1 narrowed the push's centre of pressure for every jump, not just the Arch push;
+		-- plain jumps then took off slightly differently and landings holding Arch fell (P1.2 round 2).
+		-- Arch pressed from `after` s past takeoff and held to landing.
+		local function archLanding(o: { [string]: number }, hold: number, after: number): any
+			return jump(o, hold, 4, {
+				script = function(
+					t: number,
+					_release: number,
+					takeoff: number?,
+					landed: boolean
+				): (number, number)
+					return 0, if takeoff and t >= takeoff + after and not landed then 1 else 0
+				end,
+			})
+		end
+		-- the push and landing themselves (takeoff spin off: Arch at takeoff would start a back flip)
+		for _, hold in { 0.35, 0.5, 0.7 } do
+			local r = archLanding({ jumpSpinAssist = 0 }, hold, 0)
+			T.expect(
+				r.finalMode == "ground",
+				`Earth, crouch {hold} s, Arch from takeoff: ended {r.finalMode}`
+			)
+		end
+		for _, hold in { 0.35, 0.7 } do
+			local r = archLanding({ jumpSpinAssist = 0, moonGravity = 1 }, hold * 2.46, 0)
+			T.expect(
+				r.finalMode == "ground",
+				`moon, crouch {hold * 2.46} s, Arch from takeoff: ended {r.finalMode}`
+			)
+		end
+		-- defaults: Arch pressed after the late back-flip window is just a shape change. (Arch
+		-- pressed ~0.25 s in lands on the legs mid-swing and falls, in the playtested build too:
+		-- a landing-reflex limit, PLAYTEST_P1_2.md round 2.)
+		for _, after in { 0.2, 0.35 } do
+			for _, hold in { 0.35, 0.5, 0.7 } do
+				local r = archLanding({}, hold, after)
+				T.expect(
+					r.finalMode == "ground",
+					`Earth, crouch {hold} s, Arch {after} s after takeoff: ended {r.finalMode}`
+				)
+				T.below(math.abs(r.rotation), 0.2, "Arch pressed mid-flight creates no rotation")
+			end
+		end
 	end)
 
 	T.test("ground/air transitions: no flicker standing, landing from a drop, or holding a crouch", function()
