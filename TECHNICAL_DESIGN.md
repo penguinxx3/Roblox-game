@@ -185,6 +185,7 @@ src/shared/Gym/                 PURE CORE: no Roblox types; runs in Roblox and h
                                 swing (grip friction, energy cap, optional assist); Let Go; twist; standing
                                 muscles and balance; jump push; landing reflex and absorption; events
   Pose3D.luau                   (P1.2) 2.5D presentation math shared by renderer and tests (twist transform)
+  Look.luau                     (P1.2 round 3) The drawn body's proportions (presentation only; the simulation never reads it)
   Scenarios.luau                Test scenes: Hang, Drop, Tumble, Wheel (moving anchor), Stand (P1.2)
   Sim.luau                      Fixed-step driver: accumulator, time scale, step cap, reset, NaN/out-of-bounds
                                 recovery, events, interpolation helpers; control "pose" (P1.1) or "player"
@@ -194,7 +195,7 @@ src/client/                     PRESENTATION ONLY (reads simulation state, never
   init.client.luau              Bootstrap; one render step: sample input -> advance sim -> draw -> camera
   InputRouter.luau              (P1.2) Keyboard / gamepad / minimal touch Layout A -> one Input.Frame per frame
   Plane.luau                    2D plane <-> 3D world mapping
-  RigRenderer.luau              Stickman parts via BulkMoveTo, interpolated, turned by the twist angle
+  RigRenderer.luau              The drawn body (Look) via BulkMoveTo, interpolated, turned by the twist angle
   WorldRenderer.luau            Course, bar, wheel drawn from the solver's own shapes; contact markers
   CameraController.luau         Calm side view, smooth follow
   DebugOverlay.luau             Timing, energy, momentum, joint error, contacts, angles, movement state, input, events
@@ -242,7 +243,7 @@ src/client/       Input/InputRouter · Input/TouchControls · Render/RigRenderer
 
 All of this is defined as data in `Scenarios.luau`.
 
-**Prototype character:** a stickman in our own style (not the reference look, see REFERENCE §6), drawn on the 6-body skeleton (teal torso, white limbs, far-side limbs darker). There are no avatars, Humanoid or Roblox character yet.
+**Prototype character:** a mannequin in our own palette, drawn on the 6-body skeleton. Its proportions come from `Look`, separate from the collision shapes (P1.2 round 3): a teal chest block over a darker pelvis block, a white head on a neck, slim white limbs with joint balls and hands (far-side limbs darker), and dark block feet. The drawing stays inside the collision shapes (tested), so contacts look right; physics is unchanged (bit-identical). There are no avatars, Humanoid or Roblox character yet.
 
 **Build:** `rojo build -o build/BarGym.rbxl`. Open it in Studio and press Play. Optionally use `rojo serve` for live sync. See README for the test commands.
 

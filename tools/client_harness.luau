@@ -210,7 +210,8 @@ local function rigPartsOk()
 			return false, `bad position {p.Name} {pos}`
 		end
 	end
-	return #parts == 34, `rig parts={#parts}`
+	-- the drawn body (Look): chest, pelvis, neck, head + per side 5 arm and 6 leg shapes
+	return #parts == 26, `rig parts={#parts}`
 end
 
 local function press(buttonName)
